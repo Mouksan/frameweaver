@@ -3125,6 +3125,12 @@ const defaultSettings = Object.freeze({
     charRef: { name: '', imageBase64: '', imagePath: '' },
     userRef: { name: '', imageBase64: '', imagePath: '' },
     npcReferences: [],
+    // Crop-before-upload (ported from SLAY). Opt-OUT: the checkbox reads
+    // "не предлагать обрезку", so the stored flag is the skip.
+    skipCrop: false,
+    // Rolling window of recently-used ref paths (ported from SLAY v4.2),
+    // for the ribbon under the refs grid — tap to assign, drag onto a slot.
+    recentRefs: [],
     // When true, the char/user ref is sent on every generation regardless of
     // whether its name appears in the prompt. Off = name-gated (like NPCs).
     charRefAlways: false,
@@ -7431,6 +7437,8 @@ function renderRefSlots() {
         setThumb(slot, npc);
         slot.querySelector('.iig-ref-name').value = npc?.name || '';
     }
+
+    try { renderRecentRefsRibbon(); } catch (_) { /* ribbon not mounted yet on first call */ }
 }
 
 // =========================================================================
@@ -7790,6 +7798,10 @@ function createSettingsUI() {
                             <input type="checkbox" id="iig_user_ref_always" ${settings.userRefAlways ? 'checked' : ''}>
                             <span>Always send User reference (skip name match)</span>
                         </label>
+                        <label class="checkbox_label" style="margin-top: 4px;">
+                            <input type="checkbox" id="iig_skip_crop" ${settings.skipCrop ? 'checked' : ''}>
+                            <span>Не предлагать обрезку при загрузке рефа</span>
+                        </label>
 
                         <div class="flex-row" style="margin-top: 8px;">
                             <label for="iig_ref_scope">References</label>
@@ -7861,6 +7873,11 @@ function createSettingsUI() {
                             <div class="iig-refs-row iig-refs-npcs">
                                 ${npcSlotsHtml}
                             </div>
+
+                            <!-- Recent refs ribbon: last used ref images, tap → assign popup, drag → onto a slot -->
+                            <div id="iig_recent_refs_ribbon" class="iig-recent-refs-ribbon"></div>
+                            <!-- Assign popup: moved to <body> on first show (see showAssignPopup), position:fixed needs an unclipped ancestor -->
+                            <div id="iig_assign_popup" class="iig-assign-popup"></div>
                         </div>
                     </details>
 					
@@ -7985,6 +8002,478 @@ function createSettingsUI() {
 }
 
 /** Wire name/upload/delete handlers for all 6 ref slots (char, user, 4 NPCs). */
+// ═══════════════════════════════════════════════════════════════════════
+// Crop-before-upload (ported from SLAY, renamed to this file's iig-
+// convention — slayCropImage → iigCropImage, .slay-crop-* → .iig-crop-*).
+// Returns a data URL (cropped or whole), or null if the user backed out.
+// ═══════════════════════════════════════════════════════════════════════
+function iigCropImage(dataUrl, opts = {}) {
+    const aspectDefault = typeof opts.aspect === 'number' ? opts.aspect : 0; // w/h, 0 = free
+    const title = opts.title || 'Обрезать перед загрузкой';
+    const subtitle = opts.subtitle || '';
+
+    return new Promise((resolve) => {
+        const ov = document.createElement('div');
+        ov.className = 'iig-crop-ov';
+        ov.innerHTML = `
+            <div class="iig-crop-box" role="dialog" aria-label="${sanitizeForHtml(title)}">
+                <div class="iig-crop-head">
+                    <div>
+                        <div class="iig-crop-t">${sanitizeForHtml(title)}</div>
+                        ${subtitle ? `<div class="iig-crop-s">${sanitizeForHtml(subtitle)}</div>` : ''}
+                    </div>
+                    <button class="iig-crop-x" type="button" aria-label="Отмена"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="iig-crop-asp">
+                    <button class="iig-asp" data-a="0.75">3:4</button>
+                    <button class="iig-asp" data-a="1">1:1</button>
+                    <button class="iig-asp" data-a="0.667">2:3</button>
+                    <button class="iig-asp" data-a="1.333">4:3</button>
+                    <button class="iig-asp on" data-a="0">Свободно</button>
+                </div>
+                <div class="iig-crop-stage">
+                    <img class="iig-crop-img" alt="">
+                    <div class="iig-crop-rect">
+                        <span class="iig-crop-h nw" data-h="nw"></span><span class="iig-crop-h ne" data-h="ne"></span>
+                        <span class="iig-crop-h sw" data-h="sw"></span><span class="iig-crop-h se" data-h="se"></span>
+                    </div>
+                </div>
+                <div class="iig-crop-info"><span class="iig-crop-size">—</span><span class="iig-crop-cut"></span></div>
+                <div class="iig-crop-btns">
+                    <button class="iig-crop-b primary" data-act="crop">Обрезать</button>
+                    <button class="iig-crop-b" data-act="whole">Взять целиком</button>
+                    <button class="iig-crop-b ghost" data-act="reset" title="Сбросить рамку"><i class="fa-solid fa-rotate-left"></i></button>
+                </div>
+            </div>`;
+        document.body.appendChild(ov);
+
+        const stage  = ov.querySelector('.iig-crop-stage');
+        const img    = ov.querySelector('.iig-crop-img');
+        const rect   = ov.querySelector('.iig-crop-rect');
+        const sizeEl = ov.querySelector('.iig-crop-size');
+        const cutEl  = ov.querySelector('.iig-crop-cut');
+
+        let aspect = aspectDefault;
+        let b = { x: 0, y: 0, w: 0, h: 0 };   // stage pixels, for display
+        let nb = { x: 0, y: 0, w: 1, h: 1 };  // fractions of the picture — authoritative
+        const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+        const markAspect = () => {
+            for (const el of ov.querySelectorAll('.iig-asp')) {
+                el.classList.toggle('on', parseFloat(el.dataset.a) === aspect);
+            }
+        };
+
+        // Where the picture actually sits inside the stage (a flex box that
+        // centres the image — a portrait in a wide stage leaves bars either side).
+        function imgBox() {
+            const sr = stage.getBoundingClientRect();
+            const ir = img.getBoundingClientRect();
+            return { x: ir.left - sr.left, y: ir.top - sr.top, w: ir.width, h: ir.height };
+        }
+
+        function fit() {
+            const box0 = imgBox();
+            if (!box0.w || !box0.h) return;
+            let w, h;
+            if (!aspect) { w = box0.w; h = box0.h; }
+            else if (box0.w / box0.h > aspect) { h = box0.h; w = h * aspect; }
+            else { w = box0.w; h = w / aspect; }
+            b = { x: box0.x + (box0.w - w) / 2, y: box0.y + (box0.h - h) / 2, w, h };
+            draw();
+        }
+
+        function draw() {
+            const box0 = imgBox();
+            if (!box0.w || !box0.h) return;
+            b.w = clamp(b.w, 32, box0.w); b.h = clamp(b.h, 32, box0.h);
+            b.x = clamp(b.x, box0.x, box0.x + box0.w - b.w);
+            b.y = clamp(b.y, box0.y, box0.y + box0.h - b.h);
+            rect.style.left = b.x + 'px'; rect.style.top = b.y + 'px';
+            rect.style.width = b.w + 'px'; rect.style.height = b.h + 'px';
+            nb = {
+                x: (b.x - box0.x) / box0.w,
+                y: (b.y - box0.y) / box0.h,
+                w: b.w / box0.w,
+                h: b.h / box0.h,
+            };
+            if (img.naturalWidth) {
+                const sw = Math.round(nb.w * img.naturalWidth);
+                const sh = Math.round(nb.h * img.naturalHeight);
+                sizeEl.textContent = `${sw} × ${sh}`;
+                const cut = Math.max(0, Math.round((1 - nb.w * nb.h) * 100));
+                cutEl.textContent = cut ? `отброшено ${cut}%` : 'вся картинка';
+            }
+        }
+
+        let drag = null;
+        stage.addEventListener('pointerdown', (e) => {
+            const h = e.target.closest('.iig-crop-h');
+            const inside = e.target === rect || rect.contains(e.target);
+            if (!h && !inside) return;
+            try { stage.setPointerCapture(e.pointerId); } catch (_) {}
+            drag = { h: h ? h.dataset.h : null, sx: e.clientX, sy: e.clientY, b: { ...b } };
+            e.preventDefault();
+        });
+        stage.addEventListener('pointermove', (e) => {
+            if (!drag) return;
+            const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy, o = drag.b;
+            if (!drag.h) { b.x = o.x + dx; b.y = o.y + dy; draw(); return; }
+            let nx = o.x, ny = o.y, nw = o.w, nh = o.h;
+            if (drag.h === 'se') { nw = o.w + dx; nh = aspect ? nw / aspect : o.h + dy; }
+            if (drag.h === 'sw') { nw = o.w - dx; nh = aspect ? nw / aspect : o.h + dy; nx = o.x + o.w - nw; }
+            if (drag.h === 'ne') { nw = o.w + dx; nh = aspect ? nw / aspect : o.h - dy; ny = o.y + o.h - nh; }
+            if (drag.h === 'nw') { nw = o.w - dx; nh = aspect ? nw / aspect : o.h - dy; nx = o.x + o.w - nw; ny = o.y + o.h - nh; }
+            if (nw < 32 || nh < 32) return;
+            b = { x: nx, y: ny, w: nw, h: nh };
+            draw();
+        });
+        const endDrag = (e) => { if (drag) { drag = null; try { stage.releasePointerCapture(e.pointerId); } catch (_) {} } };
+        stage.addEventListener('pointerup', endDrag);
+        stage.addEventListener('pointercancel', endDrag);
+
+        function reshape() {
+            if (!aspect) { draw(); return; }
+            const box0 = imgBox();
+            if (!box0.w || !box0.h) return;
+            const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+            let w = Math.min(b.w, box0.w);
+            let h = w / aspect;
+            if (h > box0.h) { h = box0.h; w = h * aspect; }
+            b = { x: cx - w / 2, y: cy - h / 2, w, h };
+            draw();
+        }
+
+        ov.querySelector('.iig-crop-asp').addEventListener('click', (e) => {
+            const btn = e.target.closest('.iig-asp'); if (!btn) return;
+            aspect = parseFloat(btn.dataset.a);
+            markAspect();
+            reshape();
+        });
+
+        let settled = false;
+        const cleanups = [];
+        const finish = (val) => {
+            for (const fn of cleanups) { try { fn(); } catch (_) {} }
+            if (settled) return;
+            settled = true;
+            ov.remove();
+            document.removeEventListener('keydown', onKey, true);
+            resolve(val);
+        };
+        const onKey = (e) => {
+            if (e.key !== 'Escape' && e.key !== 'Enter') return;
+            e.stopPropagation();
+            e.preventDefault();
+            if (e.key === 'Escape') finish(null);
+            else doCrop();
+        };
+        document.addEventListener('keydown', onKey, true);
+
+        function doCrop() {
+            if (!img.naturalWidth) return finish(dataUrl);
+            const NW = img.naturalWidth, NH = img.naturalHeight;
+            const cl = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+            let sx = Math.round(cl(nb.x, 0, 1) * NW);
+            let sy = Math.round(cl(nb.y, 0, 1) * NH);
+            let sw = Math.round(cl(nb.w, 0, 1) * NW);
+            let sh = Math.round(cl(nb.h, 0, 1) * NH);
+            sw = Math.max(1, Math.min(sw, NW - sx));
+            sh = Math.max(1, Math.min(sh, NH - sy));
+            // Whole picture selected — hand back the original bytes untouched.
+            if (sx <= 1 && sy <= 1 && sw >= NW - 2 && sh >= NH - 2) return finish(dataUrl);
+            try {
+                const c = document.createElement('canvas');
+                c.width = sw; c.height = sh;
+                c.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+                const mime = /^data:image\/png/i.test(dataUrl) ? 'image/png' : 'image/jpeg';
+                finish(c.toDataURL(mime, mime === 'image/jpeg' ? 0.92 : undefined));
+            } catch (err) {
+                iigLog('WARN', `crop failed, using original: ${err?.message}`);
+                finish(dataUrl);
+            }
+        }
+
+        ov.querySelector('.iig-crop-btns').addEventListener('click', (e) => {
+            const btn = e.target.closest('.iig-crop-b'); if (!btn) return;
+            if (btn.dataset.act === 'crop') doCrop();
+            if (btn.dataset.act === 'whole') finish(dataUrl);
+            if (btn.dataset.act === 'reset') fit();
+        });
+        ov.querySelector('.iig-crop-x').addEventListener('click', () => finish(null));
+
+        // Overlay is a child of <body>, so its clicks also reach document-level
+        // "clicked outside" handlers (e.g. the assign popup's dismiss listener) —
+        // swallow the whole family here so pressing a crop button doesn't close
+        // something else underneath. Ignore backdrop taps for a moment after
+        // opening (iOS fires a pointerdown here when the native photo picker closes).
+        const openedAt = Date.now();
+        for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click', 'touchstart', 'touchend']) {
+            ov.addEventListener(type, (e) => {
+                if (type === 'pointerdown' && e.target === ov && Date.now() - openedAt > 400) finish(null);
+                e.stopPropagation();
+            });
+        }
+
+        img.addEventListener('load', () => { markAspect(); fit(); });
+        img.addEventListener('error', () => {
+            iigLog('WARN', 'crop: image failed to decode, continuing without cropping');
+            toastr.info('Не удалось открыть картинку для обрезки — загружаю как есть', 'Image Generation', { timeOut: 3000 });
+            finish(dataUrl);
+        });
+        img.src = dataUrl;
+        addEventListener('resize', fit, { passive: true });
+        cleanups.push(() => removeEventListener('resize', fit));
+    });
+}
+
+function iigCropEnabled() {
+    try { return getSettings().skipCrop !== true; } catch (_) { return true; }
+}
+
+// Convenience wrapper for upload paths: takes/returns raw base64 (not a data
+// URL), which is what every caller already works with. null = user cancelled,
+// caller must abort the upload.
+async function iigMaybeCrop(rawBase64, opts = {}) {
+    if (!iigCropEnabled()) return rawBase64;
+    const mime = detectImageMimeFromBase64(rawBase64);
+    const out = await iigCropImage(`data:${mime};base64,${rawBase64}`, opts);
+    if (out === null) return null;
+    return String(out).split(',')[1] || rawBase64;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Recent refs (ported from SLAY v4.2): rolling window of the last N
+// ref-image paths assigned to any slot, surfaced as a ribbon under the
+// refs grid — tap a thumb → assign popup, or drag it onto a slot.
+// Stored globally (not per-chat): it's a convenience "what did I just use"
+// list, not part of the actual ref data per-chat mode forks.
+// ═══════════════════════════════════════════════════════════════════════
+const RECENT_REFS_MAX = 10;
+
+function pushRecentRef(path) {
+    if (!path) return;
+    const settings = getSettings();
+    if (!Array.isArray(settings.recentRefs)) settings.recentRefs = [];
+    settings.recentRefs = settings.recentRefs.filter(r => (typeof r === 'string' ? r : r.path) !== path);
+    settings.recentRefs.unshift({ path, lastUsed: Date.now() });
+    if (settings.recentRefs.length > RECENT_REFS_MAX) settings.recentRefs.length = RECENT_REFS_MAX;
+    saveSettings();
+    try { renderRecentRefsRibbon(); } catch (_) { /* not mounted yet */ }
+}
+
+function getRecentRefs() {
+    const settings = getSettings();
+    const list = Array.isArray(settings.recentRefs) ? settings.recentRefs : [];
+    return list.map(r => typeof r === 'string' ? { path: r, lastUsed: 0 } : r).filter(r => r.path);
+}
+
+function removeRecentRef(path) {
+    const settings = getSettings();
+    if (!Array.isArray(settings.recentRefs)) return;
+    settings.recentRefs = settings.recentRefs.filter(r => (typeof r === 'string' ? r : r.path) !== path);
+    saveSettings();
+    try { renderRecentRefsRibbon(); } catch (_) {}
+}
+
+// Write a saved path into a slot's live state + thumbnail. Shared by the
+// assign popup and the ribbon's drag-and-drop handler; respects the same
+// global/per-chat scoping as the rest of the ref system.
+function applyPathToSlot(slotEl, refType, npcIndex, savedPath) {
+    const s = getActiveRefsForWrite();
+    if (refType === 'char') { s.charRef.imageBase64 = ''; s.charRef.imagePath = savedPath; }
+    else if (refType === 'user') { s.userRef.imageBase64 = ''; s.userRef.imagePath = savedPath; }
+    else if (refType === 'npc') {
+        if (!s.npcReferences[npcIndex]) s.npcReferences[npcIndex] = { name: '', imageBase64: '', imagePath: '' };
+        s.npcReferences[npcIndex].imageBase64 = '';
+        s.npcReferences[npcIndex].imagePath = savedPath;
+    }
+    saveActiveRefs();
+    if (slotEl) {
+        const thumb = slotEl.querySelector('.iig-ref-thumb'); if (thumb) thumb.src = savedPath;
+        const tw = slotEl.querySelector('.iig-ref-thumb-wrap'); if (tw) tw.classList.add('has-image');
+    }
+}
+
+function findAllSlotsByKey(key) {
+    if (!key) return [];
+    if (key === 'char' || key === 'user') {
+        return [...document.querySelectorAll(`.iig-ref-slot[data-ref-type="${key}"]`)];
+    }
+    const m = key.match(/^npc-(\d+)$/);
+    if (!m) return [];
+    return [...document.querySelectorAll(`.iig-ref-slot[data-ref-type="npc"][data-npc-index="${m[1]}"]`)];
+}
+
+function closeAllRefPopups() {
+    document.getElementById('iig_assign_popup')?.classList.remove('show');
+}
+
+// Shift a fixed-position popup back into the viewport if it'd render off-screen.
+function clampPopupToViewport(popup) {
+    if (!popup || !popup.classList.contains('show')) return;
+    const rect = popup.getBoundingClientRect();
+    const margin = 8;
+    let left = rect.left, top = rect.top;
+    if (rect.right > innerWidth - margin) left -= (rect.right - innerWidth + margin);
+    if (rect.left < margin) left = margin;
+    if (rect.bottom > innerHeight - margin) top -= (rect.bottom - innerHeight + margin);
+    if (rect.top < margin) top = margin;
+    popup.style.left = Math.max(margin, left) + 'px';
+    popup.style.top = Math.max(margin, top) + 'px';
+}
+
+let _iigPopupAutoDismissArmed = false;
+function armPopupContainment(popup) {
+    // Clicks inside the popup must not bubble to the document-level
+    // "clicked outside" handler below (that handler is what closes it).
+    if (popup.dataset.iigContained === '1') return;
+    popup.dataset.iigContained = '1';
+    popup.addEventListener('click', (e) => e.stopPropagation());
+    popup.addEventListener('pointerdown', (e) => e.stopPropagation());
+    if (!_iigPopupAutoDismissArmed) {
+        _iigPopupAutoDismissArmed = true;
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('#iig_assign_popup, .iig-recent-thumb')) closeAllRefPopups();
+        });
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAllRefPopups(); });
+        // Popups are position:fixed and anchored to a thumb's on-screen rect —
+        // scroll/resize detaches them from what they point at, so dismiss
+        // instead of trying to re-anchor.
+        window.addEventListener('scroll', () => closeAllRefPopups(), { capture: true, passive: true });
+        window.addEventListener('resize', () => closeAllRefPopups(), { passive: true });
+    }
+}
+
+// "Куда применить?" — offers char/user/NPC-N slot buttons for a recent ref path.
+function showAssignPopup(anchor, path) {
+    const popup = document.getElementById('iig_assign_popup');
+    if (!popup) return;
+    if (popup.classList.contains('show') && popup.dataset.path === path) {
+        popup.classList.remove('show');
+        return;
+    }
+    if (popup.parentElement !== document.body) document.body.appendChild(popup);
+    armPopupContainment(popup);
+
+    const slotButtons = [];
+    slotButtons.push(`<button class="iig-assign-btn" data-key="char">{{char}}</button>`);
+    slotButtons.push(`<button class="iig-assign-btn" data-key="user">{{user}}</button>`);
+    const seenNpc = new Set();
+    document.querySelectorAll('.iig-ref-slot[data-ref-type="npc"]').forEach((slot, i) => {
+        const idx = String(slot.dataset.npcIndex ?? i);
+        if (seenNpc.has(idx)) return;
+        seenNpc.add(idx);
+        slotButtons.push(`<button class="iig-assign-btn" data-key="npc-${idx}">NPC ${Number(idx) + 1}</button>`);
+    });
+    popup.innerHTML = `
+        <button class="iig-popup-close" type="button" title="Закрыть" aria-label="Закрыть"><i class="fa-solid fa-xmark"></i></button>
+        <div class="iig-assign-title">Куда применить?</div>
+        <div class="iig-assign-preview"><img src="${String(path).replace(/"/g, '&quot;')}" alt=""></div>
+        <div class="iig-assign-buttons">${slotButtons.join('')}</div>
+    `;
+    popup.querySelector('.iig-popup-close')?.addEventListener('click', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        closeAllRefPopups();
+    });
+    const rect = anchor.getBoundingClientRect();
+    popup.style.left = rect.left + 'px';
+    popup.style.top = (rect.bottom + 6) + 'px';
+    popup.classList.add('show');
+    popup.dataset.path = path;
+    requestAnimationFrame(() => clampPopupToViewport(popup));
+
+    for (const btn of popup.querySelectorAll('.iig-assign-btn')) {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            const key = btn.dataset.key;
+            const slots = findAllSlotsByKey(key);
+            if (!slots.length) { closeAllRefPopups(); return; }
+            const refType = slots[0].dataset.refType;
+            const npcIndex = parseInt(slots[0].dataset.npcIndex, 10);
+            for (const sl of slots) applyPathToSlot(sl, refType, npcIndex, path);
+            const slot = slots[slots.length - 1];
+            pushRecentRef(path);
+            slot.classList.add('iig-slot-flash');
+            setTimeout(() => slot.classList.remove('iig-slot-flash'), 600);
+            closeAllRefPopups();
+            toastr.success('Реф применён', 'Image Generation', { timeOut: 1500 });
+        });
+    }
+}
+
+function renderRecentRefsRibbon() {
+    const host = document.getElementById('iig_recent_refs_ribbon');
+    if (!host) return;
+    const items = getRecentRefs();
+    if (items.length === 0) {
+        host.innerHTML = '';
+        host.classList.remove('has-items');
+        return;
+    }
+    host.classList.add('has-items');
+    let html = `<div class="iig-recent-refs-head">
+        <span class="iig-recent-refs-title"><i class="fa-solid fa-clock-rotate-left"></i> Недавние</span>
+        <span class="iig-recent-refs-hint">Tap → куда применить • drag на слот</span>
+    </div>
+    <div class="iig-recent-refs-track">`;
+    for (const item of items) {
+        const safeSrc = String(item.path).replace(/"/g, '&quot;');
+        html += `<div class="iig-recent-thumb" draggable="true" data-path="${safeSrc}" title="${safeSrc}">
+            <img src="${safeSrc}" alt="" loading="lazy">
+            <button class="iig-recent-remove" title="Убрать из недавних" data-path="${safeSrc}">×</button>
+        </div>`;
+    }
+    html += '</div>';
+    host.innerHTML = html;
+    bindRecentRefsEvents(host);
+}
+
+function bindRecentRefsEvents(host) {
+    for (const thumb of host.querySelectorAll('.iig-recent-thumb')) {
+        const path = thumb.dataset.path;
+        thumb.addEventListener('click', (e) => {
+            if (e.target.closest('.iig-recent-remove')) return;
+            e.stopPropagation();
+            showAssignPopup(e.currentTarget, path);
+        });
+        thumb.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('text/plain', path);
+            e.dataTransfer.effectAllowed = 'copy';
+            thumb.classList.add('dragging');
+            window._iigRecentDragPath = path;
+        });
+        thumb.addEventListener('dragend', () => {
+            thumb.classList.remove('dragging');
+            window._iigRecentDragPath = null;
+        });
+    }
+    for (const rm of host.querySelectorAll('.iig-recent-remove')) {
+        rm.addEventListener('click', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            removeRecentRef(rm.dataset.path);
+        });
+    }
+    // Drop targets = all ref slots (char/user/NPC alike).
+    for (const slot of document.querySelectorAll('.iig-ref-slot')) {
+        if (slot.dataset.iigDropBound === '1') continue;
+        slot.dataset.iigDropBound = '1';
+        slot.addEventListener('dragover', (e) => { e.preventDefault(); slot.classList.add('iig-slot-drop-hover'); });
+        slot.addEventListener('dragleave', () => slot.classList.remove('iig-slot-drop-hover'));
+        slot.addEventListener('drop', (e) => {
+            e.preventDefault();
+            slot.classList.remove('iig-slot-drop-hover');
+            const path = e.dataTransfer.getData('text/plain') || window._iigRecentDragPath;
+            if (!path) return;
+            const refType = slot.dataset.refType;
+            const npcIndex = parseInt(slot.dataset.npcIndex, 10);
+            applyPathToSlot(slot, refType, npcIndex, path);
+            pushRecentRef(path);
+            toastr.success('Реф применён', 'Image Generation', { timeOut: 1500 });
+        });
+    }
+}
+
 function bindRefSlotEvents() {
     const allSlots = document.querySelectorAll('.iig-ref-slot');
 
@@ -8096,7 +8585,16 @@ function bindRefSlotEvents() {
                     reader.readAsDataURL(file);
                 });
 
-                const compressed = await compressBase64Image(rawBase64, 768, 0.8);
+                // Crop before compressing/hashing anything downstream — the
+                // cropped bytes are what actually gets saved and reused.
+                const croppedBase64 = await iigMaybeCrop(rawBase64, {
+                    aspect: 0,
+                    title: 'Обрезать реф',
+                    subtitle: refType === 'npc' ? `NPC ${npcIndex + 1}` : (refType === 'char' ? '{{char}}' : '{{user}}'),
+                });
+                if (croppedBase64 === null) { e.target.value = ''; return; } // user cancelled
+
+                const compressed = await compressBase64Image(croppedBase64, 768, 0.8);
 
                 // Save ref as file on server, store only the lightweight path
                 const label = refType === 'npc' ? `npc${npcIndex}` : refType;
@@ -8137,6 +8635,7 @@ function bindRefSlotEvents() {
 
                 iigLog('INFO', `Ref slot ${label}: saved to ${savedPath}`);
                 toastr.success('Photo saved to server', 'Image Generation', { timeOut: 2000 });
+                pushRecentRef(savedPath);
 
                 // Fire-and-forget delete of the previous file to prevent iig_refs
                 // bloat. Global: always delete. Per-chat: delete only if global
@@ -8441,6 +8940,11 @@ function bindSettingsEvents() {
 
     document.getElementById('iig_user_ref_always')?.addEventListener('change', (e) => {
         settings.userRefAlways = !!e.target.checked;
+        saveSettings();
+    });
+
+    document.getElementById('iig_skip_crop')?.addEventListener('change', (e) => {
+        settings.skipCrop = !!e.target.checked;
         saveSettings();
     });
 

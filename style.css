@@ -4,6 +4,23 @@
    by aceeenvw — https://github.com/aceeenvw/notsosillynotsoimages
    ============================================================ */
 
+/* Root-level tokens for pieces that render OUTSIDE .iig-settings (popups,
+   the crop overlay, the recent-refs ribbon are all appended to <body> so
+   position:fixed can't get trapped by an ancestor's stacking context).
+   The --slay-* names below are referenced throughout this file but were
+   never actually defined anywhere — those rules were silently falling
+   back to invalid values. Aliased to the theme instead of renaming every
+   use site, so existing ribbon/popup styles start working too. */
+:root {
+    --slay-pink: var(--SmartThemeQuoteColor, #f472b6);
+    --slay-pink-bright: color-mix(in srgb, var(--slay-pink) 70%, white 30%);
+    --slay-pink-soft: color-mix(in srgb, var(--slay-pink) 14%, transparent);
+    --slay-pink-glow: color-mix(in srgb, var(--slay-pink) 45%, transparent);
+    --slay-error: #ef4444;
+    --slay-radius-sm: 8px;
+    --slay-transition: 0.15s ease;
+}
+
 /* ==================== Settings Panel ==================== */
 
 /* Strip the default bottom margin off OUR drawer header so the chevron
@@ -2265,6 +2282,124 @@ body.iig-low-power [class*="iig-"]::after {
     background: color-mix(in srgb, var(--slay-pink) 12%, transparent);
     border-color: color-mix(in srgb, var(--slay-pink) 35%, transparent);
     transform: translateY(-1px);
+}
+
+/* ═══════════════════════════════════════════
+   Crop-before-upload overlay
+   ═══════════════════════════════════════════ */
+.iig-crop-ov {
+    position: fixed; inset: 0; z-index: 100000;
+    background: rgba(6, 6, 10, 0.82);
+    display: flex; align-items: center; justify-content: center;
+    padding: 12px;
+    touch-action: none;
+}
+.iig-crop-box {
+    width: min(480px, 100%);
+    max-height: 100dvh;
+    display: flex; flex-direction: column;
+    background: rgba(18, 18, 26, 0.98);
+    border: 1px solid color-mix(in srgb, var(--slay-pink) 28%, var(--SmartThemeBorderColor, rgba(255,255,255,0.12)));
+    border-radius: 14px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+    overflow: hidden;
+    color: var(--SmartThemeBodyColor, #e2e2e2);
+}
+.iig-crop-head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    padding: 14px 14px 8px;
+}
+.iig-crop-t { font-size: 0.95em; font-weight: 600; }
+.iig-crop-s { font-size: 0.72em; opacity: 0.6; margin-top: 2px; }
+.iig-crop-x {
+    background: transparent; border: none; color: inherit; opacity: 0.6;
+    cursor: pointer; padding: 4px; border-radius: 6px; flex-shrink: 0;
+    transition: all var(--slay-transition);
+}
+.iig-crop-x:hover { opacity: 1; background: rgba(255,255,255,0.08); }
+.iig-crop-asp {
+    display: flex; gap: 6px; padding: 0 14px 10px;
+    overflow-x: auto;
+}
+.iig-asp {
+    flex-shrink: 0;
+    padding: 6px 12px;
+    font-size: 0.78em;
+    border-radius: var(--slay-radius-sm);
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15));
+    background: transparent;
+    color: var(--SmartThemeBodyColor, #e2e2e2);
+    cursor: pointer;
+    transition: all var(--slay-transition);
+}
+.iig-asp.on, .iig-asp:hover {
+    border-color: var(--slay-pink);
+    background: var(--slay-pink-soft);
+    color: var(--slay-pink-bright);
+}
+.iig-crop-stage {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 240px;
+    max-height: 60dvh;
+    display: flex; align-items: center; justify-content: center;
+    background: repeating-conic-gradient(rgba(255,255,255,0.03) 0% 25%, transparent 0% 50%) 0 0 / 20px 20px;
+    overflow: hidden;
+    touch-action: none;
+}
+.iig-crop-img { max-width: 100%; max-height: 100%; display: block; user-select: none; -webkit-user-drag: none; }
+.iig-crop-rect {
+    position: absolute;
+    border: 2px solid var(--slay-pink);
+    box-shadow: 0 0 0 9999px rgba(0,0,0,0.55);
+    cursor: move;
+}
+.iig-crop-h {
+    position: absolute;
+    width: 22px; height: 22px;
+    margin: -11px;
+    touch-action: none;
+}
+.iig-crop-h::after {
+    content: '';
+    position: absolute; inset: 7px;
+    background: var(--slay-pink);
+    border: 2px solid rgba(0,0,0,0.5);
+    border-radius: 50%;
+}
+.iig-crop-h.nw { top: 0; left: 0; cursor: nwse-resize; }
+.iig-crop-h.ne { top: 0; right: 0; left: auto; cursor: nesw-resize; }
+.iig-crop-h.sw { bottom: 0; left: 0; top: auto; cursor: nesw-resize; }
+.iig-crop-h.se { bottom: 0; right: 0; top: auto; left: auto; cursor: nwse-resize; }
+.iig-crop-info {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 14px;
+    font-size: 0.72em;
+    opacity: 0.65;
+}
+.iig-crop-btns {
+    display: flex; gap: 8px;
+    padding: 10px 14px 14px;
+}
+.iig-crop-b {
+    flex: 1;
+    padding: 9px 10px;
+    font-size: 0.82em;
+    border-radius: var(--slay-radius-sm);
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15));
+    background: transparent;
+    color: var(--SmartThemeBodyColor, #e2e2e2);
+    cursor: pointer;
+    transition: all var(--slay-transition);
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.iig-crop-b:hover { border-color: var(--slay-pink); }
+.iig-crop-b.primary { background: var(--slay-pink); color: #0a0a0f; border-color: var(--slay-pink); font-weight: 600; }
+.iig-crop-b.primary:hover { background: var(--slay-pink-bright); }
+.iig-crop-b.ghost { flex: 0 0 auto; width: 42px; }
+@media (max-width: 480px) {
+    .iig-crop-box { width: 100%; height: 100dvh; max-height: 100dvh; border-radius: 0; }
+    .iig-crop-stage { max-height: none; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
