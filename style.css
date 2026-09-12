@@ -3138,9 +3138,10 @@ body.iig-low-power [class*="iig-"]::after {
 
 .iig-refs-modal-body {
     display: flex;
-    /* Колонки не растягиваются друг под друга: каждая занимает свою высоту,
-       а разницу добирает воздух снизу — так ряды слотов ложатся ровно. */
-    align-items: flex-start;
+    /* Колонки тянутся до общей высоты (stretch по умолчанию), а слоты ГГ
+       прижаты к низу левой — см. .iig-refs-col-left .iig-refs-grid ниже.
+       Так нижние края совпадают сами, без подгонки пикселями: слева много
+       текста, и лишний воздух в его середине глазу не виден. */
     gap: 16px;
     flex: 1 1 auto;
     min-height: 0;
@@ -3159,7 +3160,11 @@ body.iig-low-power [class*="iig-"]::after {
 /* Левая колонка чуть уже: справа сетка 2×2 из слотов NPC. */
 .iig-refs-col-left { flex: 0 1 46%; }
 
-#iig-refs-modal .iig-refs-grid { margin-top: 4px; }
+/* Свободное место уходит НАД слотами ГГ, а не под ними — низ обеих колонок
+   оказывается на одной линии, сколько бы рядов NPC ни было справа.
+   Селектор с id намеренно: правило ниже по файлу с той же силой иначе
+   перебило бы margin-top обратно на фиксированный отступ. */
+#iig-refs-modal .iig-refs-col-left .iig-refs-grid { margin-top: auto; }
 
 #iig-refs-modal .iig-refs-row.iig-refs-npcs {
     display: grid;
