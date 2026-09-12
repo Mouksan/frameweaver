@@ -7513,17 +7513,210 @@ function getStylePreview(value) {
     return text.length > 50 ? `${text.slice(0, 50).trimEnd()}...` : text;
 }
 
-/** Build and inject the settings panel into #extensions_settings. */
-function createSettingsUI() {
-    const settings = getSettings();
-    const context = getContext();
-    
-    const container = document.getElementById('extensions_settings');
-    if (!container) {
-        iigLog('ERROR', 'Settings container not found');
-        return;
-    }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Refs modal
+//
+// Раньше вся эта разметка жила прямо в панели настроек. Теперь она
+// появляется и исчезает вместе с модалкой, поэтому обработчики слотов,
+// селекта режима и кнопки сброса вешаются при КАЖДОМ открытии, а не один
+// раз при сборке панели: иначе окно открывается мёртвым — картинки видно,
+// а загрузка и удаление не работают.
+// ═══════════════════════════════════════════════════════════════════════
+
+function buildRefsModalHtml() {
+    const settings = getSettings();
+    const npcSlotsHtml = buildNpcSlotsHtml();
+
+    return `
+        <div id="iig-refs-modal-overlay">
+            <div id="iig-refs-modal">
+                <div class="sw-modal-header">
+                    <span><i class="fa-solid fa-user-group"></i> Рефы персонажей</span>
+                    <div class="sw-modal-close" id="iig_refs_close" title="Закрыть"><i class="fa-solid fa-xmark"></i></div>
+                </div>
+                <div class="iig-refs-modal-body">
+                    <div class="iig-refs-col iig-refs-col-left">
+                        <p class="hint">Референсы уходят в запрос, только если имя слота встретилось в промпте (максимум 4 на запрос). Имена поддерживают <b>псевдонимы через запятую</b> — например <code>Elodie, Lodi, Ellie</code>.</p>
+
+                <label class="checkbox_label" style="margin-top: 4px;">
+                                            <input type="checkbox" id="iig_char_ref_always" ${settings.charRefAlways ? 'checked' : ''}>
+                                            <span>Always send Char reference (skip name match)</span>
+                                        </label>
+                                        <label class="checkbox_label" style="margin-top: 4px;">
+                                            <input type="checkbox" id="iig_user_ref_always" ${settings.userRefAlways ? 'checked' : ''}>
+                                            <span>Always send User reference (skip name match)</span>
+                                        </label>
+                                        <label class="checkbox_label" style="margin-top: 4px;">
+                                            <input type="checkbox" id="iig_skip_crop" ${settings.skipCrop ? 'checked' : ''}>
+                                            <span>Не предлагать обрезку при загрузке рефа</span>
+                                        </label>
+
+                <div class="flex-row" style="margin-top: 8px;">
+                                            <label for="iig_ref_scope">References</label>
+                                            <select id="iig_ref_scope" class="flex1">
+                                                <option value="global" ${settings.refScope !== 'per-chat' ? 'selected' : ''}>Global (same for every chat)</option>
+                                                <option value="per-chat" ${settings.refScope === 'per-chat' ? 'selected' : ''}>Per-chat (each chat remembers its own)</option>
+                                            </select>
+                                        </div>
+                                        <div id="iig_per_chat_controls" class="${settings.refScope === 'per-chat' ? '' : 'iig-hidden'}">
+                                            <p id="iig_ref_scope_label" class="hint" style="margin-top:2px;"></p>
+                                            <div class="iig-maintenance-row">
+                                                <div id="iig_refs_reset_to_global" class="menu_button iig-maint-btn" title="Delete THIS chat's own reference set (and remove its unshared image files) so it falls back to the global refs. Other chats are unaffected.">
+                                                    <i class="fa-solid fa-rotate-left"></i> Reset this chat to global
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <p class="hint"><b>Per-chat</b> mode: each chat keeps its own reference set; editing a slot forks a copy for this chat, and chats without one fall back to global. <b>Reset this chat to global</b> clears only this chat's set.</p>
+
+                        <div class="iig-refs-grid">
+                    <div class="iig-refs-row iig-refs-main">
+                                                    <div class="iig-ref-slot" data-ref-type="char">
+                                                        <div class="iig-ref-thumb-wrap">
+                                                            <img src="" alt="Char" class="iig-ref-thumb">
+                                                            <div class="iig-ref-empty-icon"><i class="fa-solid fa-user"></i></div>
+                                                            <label class="iig-ref-upload-overlay" title="Upload photo">
+                                                                <i class="fa-solid fa-camera"></i>
+                                                                <input type="file" accept="image/*" class="iig-ref-file-input" style="display:none">
+                                                            </label>
+                                                        </div>
+                                                        <div class="iig-ref-info">
+                                                            <div class="iig-ref-label">{{char}}</div>
+                                                            <input type="text" class="text_pole iig-ref-name" placeholder="Name(s), comma-separated" value="">
+                                                        </div>
+                                                        <div class="iig-ref-actions">
+                                                            <label class="menu_button iig-ref-upload-btn" title="Upload photo">
+                                                                <i class="fa-solid fa-upload"></i>
+                                                                <input type="file" accept="image/*" class="iig-ref-file-input" style="display:none">
+                                                            </label>
+                                                            <div class="menu_button iig-ref-delete-btn" title="Remove"><i class="fa-solid fa-trash-can"></i></div>
+                                                        </div>
+                                                    </div>
+
+                                                    <!-- User slot -->
+                                                    <div class="iig-ref-slot" data-ref-type="user">
+                                                        <div class="iig-ref-thumb-wrap">
+                                                            <img src="" alt="User" class="iig-ref-thumb">
+                                                            <div class="iig-ref-empty-icon"><i class="fa-solid fa-user"></i></div>
+                                                            <label class="iig-ref-upload-overlay" title="Upload photo">
+                                                                <i class="fa-solid fa-camera"></i>
+                                                                <input type="file" accept="image/*" class="iig-ref-file-input" style="display:none">
+                                                            </label>
+                                                        </div>
+                                                        <div class="iig-ref-info">
+                                                            <div class="iig-ref-label">{{user}}</div>
+                                                            <input type="text" class="text_pole iig-ref-name" placeholder="Name(s), comma-separated" value="">
+                                                        </div>
+                                                        <div class="iig-ref-actions">
+                                                            <label class="menu_button iig-ref-upload-btn" title="Upload photo">
+                                                                <i class="fa-solid fa-upload"></i>
+                                                                <input type="file" accept="image/*" class="iig-ref-file-input" style="display:none">
+                                                            </label>
+                                                            <div class="menu_button iig-ref-delete-btn" title="Remove"><i class="fa-solid fa-trash-can"></i></div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                        </div>
+                    </div>
+
+                    <div class="iig-refs-col iig-refs-col-right">
+                        <div class="iig-refs-divider"><span>NPCs</span></div>
+                        <div class="iig-refs-row iig-refs-npcs">
+                            ${npcSlotsHtml}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Лента недавних — во всю ширину: в узкой колонке помещалось бы вчетверо меньше миниатюр. -->
+                <div id="iig_recent_refs_ribbon" class="iig-recent-refs-ribbon"></div>
+                <!-- Попап «куда применить» уезжает в <body> при первом показе, убираем его при закрытии окна. -->
+                <div id="iig_assign_popup" class="iig-assign-popup"></div>
+            </div>
+        </div>`;
+}
+
+function closeRefsModal() {
+    document.getElementById('iig-refs-modal-overlay')?.remove();
+    // Попап живёт в <body>, а не внутри окна — без явной уборки он копится.
+    closeAllRefPopups();
+    document.getElementById('iig_assign_popup')?.remove();
+    document.removeEventListener('keydown', refsModalEsc);
+}
+
+function refsModalEsc(e) {
+    if (e.key === 'Escape') closeRefsModal();
+}
+
+function openRefsModal() {
+    if (document.getElementById('iig-refs-modal-overlay')) return;
+
+    const holder = document.createElement('div');
+    holder.innerHTML = buildRefsModalHtml();
+    const overlay = holder.firstElementChild;
+    document.body.appendChild(overlay);
+
+    overlay.querySelector('#iig_refs_close').addEventListener('click', closeRefsModal);
+    overlay.addEventListener('pointerdown', (e) => { if (e.target === overlay) closeRefsModal(); });
+    document.addEventListener('keydown', refsModalEsc);
+
+    bindRefsModalControls();
+    bindRefSlotEvents();
+    renderRefSlots();
+    renderRecentRefsRibbon();
+}
+
+/** Тумблеры, выбор режима и сброс — те же обработчики, но на живой разметке окна. */
+function bindRefsModalControls() {
+    const settings = getSettings();
+
+    document.getElementById('iig_ref_scope')?.addEventListener('change', onRefScopeChange);
+    document.getElementById('iig_refs_reset_to_global')?.addEventListener('click', onRefsResetToGlobal);
+}
+
+/** Переключение global / per-chat. Вызывается из окна рефов. */
+function onRefScopeChange(e) {
+    const settings = getSettings();
+    settings.refScope = (e.target.value === 'per-chat') ? 'per-chat' : 'global';
+    saveSettings();
+    // Seed this chat from global on first switch so slots aren't empty.
+    if (settings.refScope === 'per-chat') getChatRefsContainer({ seedIfMissing: true });
+    updateRefScopeUI();
+    renderRefSlots();
+}
+
+/** Сброс набора рефов этого чата к глобальному. Вызывается из окна рефов. */
+async function onRefsResetToGlobal() {
+    const ctx = getContext();
+    const bucket = ctx?.chatMetadata?.iig_refs;
+    if (bucket) {
+        // Collect this chat's ref files; delete the ones global doesn't share.
+        const chatPaths = [];
+        const add = (r) => { if (r && r.imagePath) chatPaths.push(r.imagePath); };
+        add(bucket.charRef);
+        add(bucket.userRef);
+        for (const npc of (bucket.npcReferences || [])) add(npc);
+
+        delete ctx.chatMetadata.iig_refs;
+        try { ctx.saveMetadata?.(); } catch (_) {}
+
+        let deleted = 0;
+        for (const p of chatPaths) {
+            if (!collectGlobalRefPaths().has(p)) {
+                const ok = await deleteRefFileOnServer(p);
+                if (ok) deleted++;
+            }
+            invalidateRefB64Cache(p);
+        }
+        iigLog('INFO', `Reset to global: removed ${deleted} chat-owned ref file(s)`);
+    }
+    clearAllRefB64Cache();
+    renderRefSlots();
+    updateRefScopeUI();
+    toastr.info('This chat now uses the global references', 'Image Generation', { timeOut: 2500 });
+}
+
+/** Слоты NPC: нужны и панели, и окну рефов, поэтому вынесены отдельно. */
+function buildNpcSlotsHtml() {
     let npcSlotsHtml = '';
     for (let i = 0; i < 4; i++) {
         npcSlotsHtml += `
@@ -7548,6 +7741,20 @@ function createSettingsUI() {
                     <div class="menu_button iig-ref-delete-btn" title="Remove"><i class="fa-solid fa-trash-can"></i></div>
                 </div>
             </div>`;
+    }
+
+    return npcSlotsHtml;
+}
+
+/** Build and inject the settings panel into #extensions_settings. */
+function createSettingsUI() {
+    const settings = getSettings();
+    const context = getContext();
+    
+    const container = document.getElementById('extensions_settings');
+    if (!container) {
+        iigLog('ERROR', 'Settings container not found');
+        return;
     }
 
     const html = `
@@ -7756,101 +7963,12 @@ function createSettingsUI() {
                         </div>
                     </details>
 
-                    <!-- Reference images — available for all providers. -->
-                    <details id="iig_refs_section" class="iig-refs iig-accordion" open>
-                        <summary><h4><i class="fa-solid fa-user-group"></i> Character References</h4></summary>
-                        <p class="hint">Upload reference photos for consistent results (max 4 per request). Sent only when a slot's name appears in the prompt. Names support <b>comma-separated aliases</b> — e.g. <code>Elodie, Lodi, Ellie</code>.</p>
-
-                        <label class="checkbox_label" style="margin-top: 4px;">
-                            <input type="checkbox" id="iig_char_ref_always" ${settings.charRefAlways ? 'checked' : ''}>
-                            <span>Always send Char reference (skip name match)</span>
-                        </label>
-                        <label class="checkbox_label" style="margin-top: 4px;">
-                            <input type="checkbox" id="iig_user_ref_always" ${settings.userRefAlways ? 'checked' : ''}>
-                            <span>Always send User reference (skip name match)</span>
-                        </label>
-                        <label class="checkbox_label" style="margin-top: 4px;">
-                            <input type="checkbox" id="iig_skip_crop" ${settings.skipCrop ? 'checked' : ''}>
-                            <span>Не предлагать обрезку при загрузке рефа</span>
-                        </label>
-
-                        <div class="flex-row" style="margin-top: 8px;">
-                            <label for="iig_ref_scope">References</label>
-                            <select id="iig_ref_scope" class="flex1">
-                                <option value="global" ${settings.refScope !== 'per-chat' ? 'selected' : ''}>Global (same for every chat)</option>
-                                <option value="per-chat" ${settings.refScope === 'per-chat' ? 'selected' : ''}>Per-chat (each chat remembers its own)</option>
-                            </select>
+                    <!-- Reference images — live in their own modal (see openRefsModal). -->
+                    <div class="flex-row" style="margin-top:8px;">
+                        <div id="iig_open_refs" class="menu_button" style="width:100%;">
+                            <i class="fa-solid fa-user-group"></i> Открыть рефы
                         </div>
-                        <div id="iig_per_chat_controls" class="${settings.refScope === 'per-chat' ? '' : 'iig-hidden'}">
-                            <p id="iig_ref_scope_label" class="hint" style="margin-top:2px;"></p>
-                            <div class="iig-maintenance-row">
-                                <div id="iig_refs_reset_to_global" class="menu_button iig-maint-btn" title="Delete THIS chat's own reference set (and remove its unshared image files) so it falls back to the global refs. Other chats are unaffected.">
-                                    <i class="fa-solid fa-rotate-left"></i> Reset this chat to global
-                                </div>
-                            </div>
-                        </div>
-                        <p class="hint"><b>Per-chat</b> mode: each chat keeps its own reference set; editing a slot forks a copy for this chat, and chats without one fall back to global. <b>Reset this chat to global</b> clears only this chat's set.</p>
-
-                        <div class="iig-refs-grid">
-                            <div class="iig-refs-row iig-refs-main">
-                                <div class="iig-ref-slot" data-ref-type="char">
-                                    <div class="iig-ref-thumb-wrap">
-                                        <img src="" alt="Char" class="iig-ref-thumb">
-                                        <div class="iig-ref-empty-icon"><i class="fa-solid fa-user"></i></div>
-                                        <label class="iig-ref-upload-overlay" title="Upload photo">
-                                            <i class="fa-solid fa-camera"></i>
-                                            <input type="file" accept="image/*" class="iig-ref-file-input" style="display:none">
-                                        </label>
-                                    </div>
-                                    <div class="iig-ref-info">
-                                        <div class="iig-ref-label">{{char}}</div>
-                                        <input type="text" class="text_pole iig-ref-name" placeholder="Name(s), comma-separated" value="">
-                                    </div>
-                                    <div class="iig-ref-actions">
-                                        <label class="menu_button iig-ref-upload-btn" title="Upload photo">
-                                            <i class="fa-solid fa-upload"></i>
-                                            <input type="file" accept="image/*" class="iig-ref-file-input" style="display:none">
-                                        </label>
-                                        <div class="menu_button iig-ref-delete-btn" title="Remove"><i class="fa-solid fa-trash-can"></i></div>
-                                    </div>
-                                </div>
-                                
-                                <!-- User slot -->
-                                <div class="iig-ref-slot" data-ref-type="user">
-                                    <div class="iig-ref-thumb-wrap">
-                                        <img src="" alt="User" class="iig-ref-thumb">
-                                        <div class="iig-ref-empty-icon"><i class="fa-solid fa-user"></i></div>
-                                        <label class="iig-ref-upload-overlay" title="Upload photo">
-                                            <i class="fa-solid fa-camera"></i>
-                                            <input type="file" accept="image/*" class="iig-ref-file-input" style="display:none">
-                                        </label>
-                                    </div>
-                                    <div class="iig-ref-info">
-                                        <div class="iig-ref-label">{{user}}</div>
-                                        <input type="text" class="text_pole iig-ref-name" placeholder="Name(s), comma-separated" value="">
-                                    </div>
-                                    <div class="iig-ref-actions">
-                                        <label class="menu_button iig-ref-upload-btn" title="Upload photo">
-                                            <i class="fa-solid fa-upload"></i>
-                                            <input type="file" accept="image/*" class="iig-ref-file-input" style="display:none">
-                                        </label>
-                                        <div class="menu_button iig-ref-delete-btn" title="Remove"><i class="fa-solid fa-trash-can"></i></div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="iig-refs-divider"><span>NPCs</span></div>
-
-                            <div class="iig-refs-row iig-refs-npcs">
-                                ${npcSlotsHtml}
-                            </div>
-
-                            <!-- Recent refs ribbon: last used ref images, tap → assign popup, drag → onto a slot -->
-                            <div id="iig_recent_refs_ribbon" class="iig-recent-refs-ribbon"></div>
-                            <!-- Assign popup: moved to <body> on first show (see showAssignPopup), position:fixed needs an unclipped ancestor -->
-                            <div id="iig_assign_popup" class="iig-assign-popup"></div>
-                        </div>
-                    </details>
+                    </div>
 					
 					<!-- Wardrobe -->
 <details class="iig-section iig-accordion">
@@ -8736,7 +8854,6 @@ function bindSettingsEvents() {
         const infoEl = document.getElementById('iig_api_type_info');
         if (infoEl) infoEl.setAttribute('title', API_TYPE_TOOLTIPS[apiType] || '');
 
-        document.getElementById('iig_refs_section')?.classList.remove('iig-hidden');
     };
     
     document.getElementById('iig_enabled')?.addEventListener('change', (e) => {
@@ -8917,45 +9034,6 @@ function bindSettingsEvents() {
     document.getElementById('iig_skip_crop')?.addEventListener('change', (e) => {
         settings.skipCrop = !!e.target.checked;
         saveSettings();
-    });
-
-    document.getElementById('iig_ref_scope')?.addEventListener('change', (e) => {
-        settings.refScope = (e.target.value === 'per-chat') ? 'per-chat' : 'global';
-        saveSettings();
-        // Seed this chat from global on first switch so slots aren't empty.
-        if (settings.refScope === 'per-chat') getChatRefsContainer({ seedIfMissing: true });
-        updateRefScopeUI();
-        renderRefSlots();
-    });
-
-    document.getElementById('iig_refs_reset_to_global')?.addEventListener('click', async () => {
-        const ctx = getContext();
-        const bucket = ctx?.chatMetadata?.iig_refs;
-        if (bucket) {
-            // Collect this chat's ref files; delete the ones global doesn't share.
-            const chatPaths = [];
-            const add = (r) => { if (r && r.imagePath) chatPaths.push(r.imagePath); };
-            add(bucket.charRef);
-            add(bucket.userRef);
-            for (const npc of (bucket.npcReferences || [])) add(npc);
-
-            delete ctx.chatMetadata.iig_refs;
-            try { ctx.saveMetadata?.(); } catch (_) {}
-
-            let deleted = 0;
-            for (const p of chatPaths) {
-                if (!collectGlobalRefPaths().has(p)) {
-                    const ok = await deleteRefFileOnServer(p);
-                    if (ok) deleted++;
-                }
-                invalidateRefB64Cache(p);
-            }
-            iigLog('INFO', `Reset to global: removed ${deleted} chat-owned ref file(s)`);
-        }
-        clearAllRefB64Cache();
-        renderRefSlots();
-        updateRefScopeUI();
-        toastr.info('This chat now uses the global references', 'Image Generation', { timeOut: 2500 });
     });
 
     // Advanced handlers
@@ -9371,8 +9449,10 @@ function bindSettingsEvents() {
     });
 	
 	document.getElementById('iig_open_style_library')?.addEventListener('click', openStyleModal);
+    document.getElementById('iig_open_refs')?.addEventListener('click', openRefsModal);
 
-    bindRefSlotEvents();
+    // bindRefSlotEvents здесь больше не нужен: разметка слотов живёт в окне
+    // рефов и привязывается при каждом его открытии (см. openRefsModal).
     updateVisibility();
 }
 
