@@ -3138,11 +3138,14 @@ body.iig-low-power [class*="iig-"]::after {
 
 .iig-refs-modal-body {
     display: flex;
+    /* Колонки не растягиваются друг под друга: каждая занимает свою высоту,
+       а разницу добирает воздух снизу — так ряды слотов ложатся ровно. */
+    align-items: flex-start;
     gap: 16px;
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
-    padding: 14px 16px 4px;
+    padding: 14px 16px 14px;
 }
 
 .iig-refs-col {
@@ -3161,7 +3164,9 @@ body.iig-low-power [class*="iig-"]::after {
 #iig-refs-modal .iig-refs-row.iig-refs-npcs {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
+    /* Зазор между рядами меньше горизонтального: шесть слотов в три ряда
+       иначе вытягивают правую колонку заметно выше левой. */
+    gap: 7px 10px;
 }
 
 /* Лента недавних — во всю ширину окна, под обеими колонками. */

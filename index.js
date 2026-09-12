@@ -3628,12 +3628,20 @@ function initMobileSaveListeners() {
     iigLog('INFO', 'Mobile save listeners registered');
 }
 
-// Ensure a ref container has charRef, userRef, and 4 NPC slots.
+// Сколько слотов NPC показываем и храним. Менять только здесь — цифра
+// используется и при отрисовке, и при досыпании пустых слотов в набор.
+//
+// ВАЖНО: это НЕ лимит отправки. Сколько рефов реально уходит в запрос,
+// решает maxRefs в collectReferencesAsBase64 (и slice(0, 4) в телах запросов
+// к провайдерам) — их трогать нельзя, это ограничение провайдеров.
+const NPC_SLOT_COUNT = 6;
+
+// Ensure a ref container has charRef, userRef, and NPC_SLOT_COUNT NPC slots.
 function ensureRefSlots(container) {
     if (!container.charRef) container.charRef = { name: '', imageBase64: '', imagePath: '' };
     if (!container.userRef) container.userRef = { name: '', imageBase64: '', imagePath: '' };
     if (!Array.isArray(container.npcReferences)) container.npcReferences = [];
-    while (container.npcReferences.length < 4) {
+    while (container.npcReferences.length < NPC_SLOT_COUNT) {
         container.npcReferences.push({ name: '', imageBase64: '', imagePath: '' });
     }
     return container;
@@ -7401,7 +7409,7 @@ function renderRefSlots() {
         userSlot.querySelector('.iig-ref-name').value = settings.userRef?.name || '';
     }
 
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < NPC_SLOT_COUNT; i++) {
         const slot = document.querySelector(`.iig-ref-slot[data-ref-type="npc"][data-npc-index="${i}"]`);
         if (!slot) continue;
         const npc = settings.npcReferences[i] || null;
@@ -7718,7 +7726,7 @@ async function onRefsResetToGlobal() {
 /** Слоты NPC: нужны и панели, и окну рефов, поэтому вынесены отдельно. */
 function buildNpcSlotsHtml() {
     let npcSlotsHtml = '';
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < NPC_SLOT_COUNT; i++) {
         npcSlotsHtml += `
             <div class="iig-ref-slot" data-ref-type="npc" data-npc-index="${i}">
                 <div class="iig-ref-thumb-wrap">
