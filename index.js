@@ -7628,7 +7628,7 @@ function buildRefsModalHtml() {
                     </div>
 
                     <div class="iig-refs-col iig-refs-col-right">
-                        <div class="iig-refs-divider"><span>НЕПИСИ</span></div>
+                        <div class="iig-refs-divider"><span>NPCs</span></div>
                         <div class="iig-refs-row iig-refs-npcs">
                             ${npcSlotsHtml}
                         </div>
