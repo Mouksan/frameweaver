@@ -3047,7 +3047,7 @@ function exportLogs() {
     a.download = `iig-logs-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`;
     a.click();
     URL.revokeObjectURL(url);
-    toastr.success('Logs exported', 'Image Generation');
+    toastr.success('Логи выгружены', 'Image Generation');
 }
 
 // apiType is the single source of truth for request routing — no model-name
@@ -6039,7 +6039,7 @@ function openLightbox(imgElement) {
                 <button class="iig-lightbox-close" title="Закрыть"><i class="fa-solid fa-xmark"></i></button>
                 <img class="iig-lightbox-img" src="" alt="">
                 <div class="iig-lightbox-actions">
-                    <button class="iig-lightbox-action-btn iig-lb-regen" title="Regenerate">${SVG_ICON_REGENERATE}</button>
+                    <button class="iig-lightbox-action-btn iig-lb-regen" title="Перегенерировать">${SVG_ICON_REGENERATE}</button>
                 </div>
                 <div class="iig-lightbox-caption"></div>
             </div>
@@ -6075,11 +6075,11 @@ async function downloadGeneratedImage(imgElement) {
     if (!src) return;
 
     try {
-        toastr.info('Downloading...', 'Image Generation', { timeOut: 2000 });
+        toastr.info('Скачиваю...', 'Image Generation', { timeOut: 2000 });
 
         if (IS_MOBILE) {
             window.open(src, '_blank');
-            toastr.success('Image opened — long-press to save', 'Image Generation', { timeOut: 3000 });
+            toastr.success('Картинка открыта — долгое нажатие, чтобы сохранить', 'Image Generation', { timeOut: 3000 });
             return;
         }
 
@@ -6106,7 +6106,7 @@ async function downloadGeneratedImage(imgElement) {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
-        toastr.success('Image downloaded', 'Image Generation', { timeOut: 2000 });
+        toastr.success('Картинка скачана', 'Image Generation', { timeOut: 2000 });
     } catch (error) {
         iigLog('ERROR', 'Download failed:', error.message);
         toastr.error('Download failed: ' + error.message, 'Image Generation');
@@ -6120,7 +6120,7 @@ const downloadGeneratedMedia = downloadGeneratedImage;
 async function regenerateSingleVideo(videoElement) {
     const instruction = videoElement.getAttribute('data-iig-video');
     if (!instruction) {
-        toastr.warning('No video instruction found on this element', 'Image Generation');
+        toastr.warning('На этом элементе нет инструкции для видео', 'Image Generation');
         return;
     }
     const mesElement = videoElement.closest('.mes[mesid]');
@@ -6204,12 +6204,12 @@ async function regenerateSingleVideo(videoElement) {
                 const stopped = document.createElement('img');
                 stopped.className = 'iig-error-image';
                 stopped.src = getErrorImagePath();
-                stopped.alt = 'Generation stopped';
+                stopped.alt = 'Генерация остановлена';
                 stopped.title = 'Generation stopped — click retry';
                 stopped.setAttribute('data-iig-video', instruction);
                 loadingPlaceholder.replaceWith(wrapPlaceholderWithRetry(stopped));
             }
-            toastr.info('Generation stopped', 'Image Generation', { timeOut: 2000 });
+            toastr.info('Генерация остановлена', 'Image Generation', { timeOut: 2000 });
             return;
         }
 
@@ -6241,7 +6241,7 @@ async function regenerateSingleVideo(videoElement) {
 async function regenerateSingleImage(imgElement) {
     const instruction = imgElement.getAttribute('data-iig-instruction');
     if (!instruction) {
-        toastr.warning('No generation instruction found on this image', 'Image Generation');
+        toastr.warning('На этой картинке нет инструкции для генерации', 'Image Generation');
         return;
     }
 
@@ -6326,7 +6326,7 @@ async function regenerateSingleImage(imgElement) {
         updateSessionStats();
         await context.saveChat();
         scheduleWrapPass(); // re-wrap after ST re-renders from mes
-        toastr.success('Image regenerated', 'Image Generation', { timeOut: 2000 });
+        toastr.success('Картинка перегенерирована', 'Image Generation', { timeOut: 2000 });
     } catch (error) {
         const isAbort = error?.name === 'AbortError' || /aborted/i.test(error?.message || '');
         const isUserCancel = error === 'user-cancel' || error?.reason === 'user-cancel' || controller.signal.reason === 'user-cancel';
@@ -6348,7 +6348,7 @@ async function regenerateSingleImage(imgElement) {
                 const stopped = createErrorPlaceholder(tagId, 'Generation stopped — click retry', { fullMatch: `data-iig-instruction='${instruction}'` });
                 loadingPlaceholder.replaceWith(wrapPlaceholderWithRetry(stopped));
             }
-            toastr.info('Generation stopped', 'Image Generation', { timeOut: 2000 });
+            toastr.info('Генерация остановлена', 'Image Generation', { timeOut: 2000 });
             return;
         }
 
@@ -6389,10 +6389,10 @@ function createLoadingPlaceholder(tagId) {
         <div class="iig-spinner-wrap">
             <div class="iig-spinner"></div>
         </div>
-        <div class="iig-status">Generating image...</div>
+        <div class="iig-status">Генерирую картинку...</div>
         <div class="iig-timer"></div>
-        <button type="button" class="iig-stop-btn" title="Stop generation" aria-label="Stop generation">
-            ${SVG_ICON_STOP}<span class="iig-stop-label">Stop</span>
+        <button type="button" class="iig-stop-btn" title="Остановить генерацию" aria-label="Stop generation">
+            ${SVG_ICON_STOP}<span class="iig-stop-label">Стоп</span>
         </button>
     `;
 
@@ -6549,7 +6549,7 @@ async function processMessageTags(messageId) {
         }
 
         iigLog('INFO', `Found ${tags.length} image tag(s) in message ${procKey}`);
-        toastr.info(`Found ${tags.length} tag(s). Generating...`, 'Image Generation', { timeOut: 3000 });
+        toastr.info(`Нашла тегов: ${tags.length}. Генерирую...`, 'Image Generation', { timeOut: 3000 });
 
         const messageElement = document.querySelector(`#chat .mes[mesid="${messageId}"]`);
         if (!messageElement) {
@@ -6788,7 +6788,7 @@ async function _processMessageTagsInner(context, message, messageId, procKey, ta
                 if (!saved.persisted) {
                     toastr.warning(`Video ${index + 1}/${tags.length} ready, but could not be saved to the server — the link is temporary. Download it to keep it.`, 'Image Generation', { timeOut: 6000 });
                 } else {
-                    toastr.success(`Video ${index + 1}/${tags.length} ready`, 'Image Generation', { timeOut: 2000 });
+                    toastr.success(`Видео ${index + 1}/${tags.length} готово`, 'Image Generation', { timeOut: 2000 });
                 }
                 return { tag, replacement, ok: true };
             }
@@ -6837,7 +6837,7 @@ async function _processMessageTagsInner(context, message, messageId, procKey, ta
             iigLog('INFO', `Successfully generated image for tag ${index}`);
             sessionGenCount++;
             updateSessionStats();
-            toastr.success(`Image ${index + 1}/${tags.length} ready`, 'Image Generation', { timeOut: 2000 });
+            toastr.success(`Картинка ${index + 1}/${tags.length} готова`, 'Image Generation', { timeOut: 2000 });
 
             return { tag, replacement, ok: true };
         } catch (error) {
@@ -6863,7 +6863,7 @@ async function _processMessageTagsInner(context, message, messageId, procKey, ta
                 } else {
                     replacement = isVideo ? `[VID:ERROR:stopped]` : `[IMG:ERROR:stopped]`;
                 }
-                toastr.info('Generation stopped', 'Image Generation', { timeOut: 2000 });
+                toastr.info('Генерация остановлена', 'Image Generation', { timeOut: 2000 });
                 return { tag, replacement, ok: false, aborted: true };
             }
 
@@ -6948,12 +6948,12 @@ async function regenerateMessageImages(messageId) {
     const tags = await parseMessageImageTags(message, { forceAll: true });
     
     if (tags.length === 0) {
-        toastr.warning('No tags to regenerate', 'Image Generation');
+        toastr.warning('Нечего перегенерировать — тегов нет', 'Image Generation');
         return;
     }
     
     iigLog('INFO', `Regenerating ${tags.length} images in message ${messageId}`);
-    toastr.info(`Regenerating ${tags.length} image(s)...`, 'Image Generation');
+    toastr.info(`Перегенерирую картинок: ${tags.length}...`, 'Image Generation');
 
     const regenKey = buildProcessingKey(messageId);
     processingMessages.add(regenKey);
@@ -7066,7 +7066,7 @@ async function regenerateMessageImages(messageId) {
                     const updatedTag = tag.fullMatch.replace(/src\s*=\s*(['"])[^'"]*\1/i, `src="${imagePath}"`);
                     replaceTagInMessageSource(message, tag, updatedTag);
 
-                    toastr.success(`Image ${index + 1}/${tags.length} ready`, 'Image Generation', { timeOut: 2000 });
+                    toastr.success(`Картинка ${index + 1}/${tags.length} готова`, 'Image Generation', { timeOut: 2000 });
                 } finally {
                     tagAbortControllers.delete(tagId);
                     endGeneration(key, controller);
@@ -7095,7 +7095,7 @@ async function regenerateMessageImages(messageId) {
                         loadingPlaceholder.replaceWith(wrapPlaceholderWithRetry(stopped));
                     }
                 }
-                toastr.info('Generation stopped', 'Image Generation', { timeOut: 2000 });
+                toastr.info('Генерация остановлена', 'Image Generation', { timeOut: 2000 });
                 return;
             }
 
@@ -7376,8 +7376,8 @@ function updateRefScopeUI() {
             hasOwn = !!ctx?.chatMetadata?.iig_refs;
         } catch (_) {}
         label.textContent = !chatLoaded
-            ? 'No chat loaded — using global refs.'
-            : (hasOwn ? 'This chat is using its OWN references.' : 'This chat has no saved refs — using the global set.');
+            ? 'Чат не открыт — используется общий набор.'
+            : (hasOwn ? 'Этот чат использует СВОЙ набор рефов.' : 'У этого чата нет своего набора — используется общий.');
     }
 }
 
@@ -7549,11 +7549,11 @@ function buildRefsModalHtml() {
 
                 <label class="checkbox_label" style="margin-top: 4px;">
                                             <input type="checkbox" id="iig_char_ref_always" ${settings.charRefAlways ? 'checked' : ''}>
-                                            <span>Always send Char reference (skip name match)</span>
+                                            <span>Всегда отправлять реф {{char}} (без совпадения имени)</span>
                                         </label>
                                         <label class="checkbox_label" style="margin-top: 4px;">
                                             <input type="checkbox" id="iig_user_ref_always" ${settings.userRefAlways ? 'checked' : ''}>
-                                            <span>Always send User reference (skip name match)</span>
+                                            <span>Всегда отправлять реф {{user}} (без совпадения имени)</span>
                                         </label>
                                         <label class="checkbox_label" style="margin-top: 4px;">
                                             <input type="checkbox" id="iig_skip_crop" ${settings.skipCrop ? 'checked' : ''}>
@@ -7561,21 +7561,21 @@ function buildRefsModalHtml() {
                                         </label>
 
                 <div class="flex-row" style="margin-top: 8px;">
-                                            <label for="iig_ref_scope">References</label>
+                                            <label for="iig_ref_scope">Набор рефов</label>
                                             <select id="iig_ref_scope" class="flex1">
-                                                <option value="global" ${settings.refScope !== 'per-chat' ? 'selected' : ''}>Global (same for every chat)</option>
-                                                <option value="per-chat" ${settings.refScope === 'per-chat' ? 'selected' : ''}>Per-chat (each chat remembers its own)</option>
+                                                <option value="global" ${settings.refScope !== 'per-chat' ? 'selected' : ''}>Общий (один на все чаты)</option>
+                                                <option value="per-chat" ${settings.refScope === 'per-chat' ? 'selected' : ''}>Свой на чат (каждый чат помнит свой)</option>
                                             </select>
                                         </div>
                                         <div id="iig_per_chat_controls" class="${settings.refScope === 'per-chat' ? '' : 'iig-hidden'}">
                                             <p id="iig_ref_scope_label" class="hint" style="margin-top:2px;"></p>
                                             <div class="iig-maintenance-row">
-                                                <div id="iig_refs_reset_to_global" class="menu_button iig-maint-btn" title="Delete THIS chat's own reference set (and remove its unshared image files) so it falls back to the global refs. Other chats are unaffected.">
-                                                    <i class="fa-solid fa-rotate-left"></i> Reset this chat to global
+                                                <div id="iig_refs_reset_to_global" class="menu_button iig-maint-btn" title="Удалить собственный набор рефов ЭТОГО чата (и его файлы, если они больше нигде не используются), чтобы он вернулся к общему набору. Другие чаты не затрагиваются.">
+                                                    <i class="fa-solid fa-rotate-left"></i> Вернуть общий набор
                                                 </div>
                                             </div>
                                         </div>
-                                        <p class="hint"><b>Per-chat</b> mode: each chat keeps its own reference set; editing a slot forks a copy for this chat, and chats without one fall back to global. <b>Reset this chat to global</b> clears only this chat's set.</p>
+                                        <p class="hint">Режим <b>своего набора</b>: каждый чат помнит свои рефы. Правка слота создаёт копию для этого чата, а чаты без своей копии берут общий набор. <b>Вернуть общий набор</b> очищает только набор этого чата.</p>
 
                         <div class="iig-refs-grid">
                     <div class="iig-refs-row iig-refs-main">
@@ -7583,21 +7583,21 @@ function buildRefsModalHtml() {
                                                         <div class="iig-ref-thumb-wrap">
                                                             <img src="" alt="Char" class="iig-ref-thumb">
                                                             <div class="iig-ref-empty-icon"><i class="fa-solid fa-user"></i></div>
-                                                            <label class="iig-ref-upload-overlay" title="Upload photo">
+                                                            <label class="iig-ref-upload-overlay" title="Загрузить фото">
                                                                 <i class="fa-solid fa-camera"></i>
                                                                 <input type="file" accept="image/*" class="iig-ref-file-input" style="display:none">
                                                             </label>
                                                         </div>
                                                         <div class="iig-ref-info">
                                                             <div class="iig-ref-label">{{char}}</div>
-                                                            <input type="text" class="text_pole iig-ref-name" placeholder="Name(s), comma-separated" value="">
+                                                            <input type="text" class="text_pole iig-ref-name" placeholder="Имя или имена через запятую" value="">
                                                         </div>
                                                         <div class="iig-ref-actions">
-                                                            <label class="menu_button iig-ref-upload-btn" title="Upload photo">
+                                                            <label class="menu_button iig-ref-upload-btn" title="Загрузить фото">
                                                                 <i class="fa-solid fa-upload"></i>
                                                                 <input type="file" accept="image/*" class="iig-ref-file-input" style="display:none">
                                                             </label>
-                                                            <div class="menu_button iig-ref-delete-btn" title="Remove"><i class="fa-solid fa-trash-can"></i></div>
+                                                            <div class="menu_button iig-ref-delete-btn" title="Удалить"><i class="fa-solid fa-trash-can"></i></div>
                                                         </div>
                                                     </div>
 
@@ -7606,21 +7606,21 @@ function buildRefsModalHtml() {
                                                         <div class="iig-ref-thumb-wrap">
                                                             <img src="" alt="User" class="iig-ref-thumb">
                                                             <div class="iig-ref-empty-icon"><i class="fa-solid fa-user"></i></div>
-                                                            <label class="iig-ref-upload-overlay" title="Upload photo">
+                                                            <label class="iig-ref-upload-overlay" title="Загрузить фото">
                                                                 <i class="fa-solid fa-camera"></i>
                                                                 <input type="file" accept="image/*" class="iig-ref-file-input" style="display:none">
                                                             </label>
                                                         </div>
                                                         <div class="iig-ref-info">
                                                             <div class="iig-ref-label">{{user}}</div>
-                                                            <input type="text" class="text_pole iig-ref-name" placeholder="Name(s), comma-separated" value="">
+                                                            <input type="text" class="text_pole iig-ref-name" placeholder="Имя или имена через запятую" value="">
                                                         </div>
                                                         <div class="iig-ref-actions">
-                                                            <label class="menu_button iig-ref-upload-btn" title="Upload photo">
+                                                            <label class="menu_button iig-ref-upload-btn" title="Загрузить фото">
                                                                 <i class="fa-solid fa-upload"></i>
                                                                 <input type="file" accept="image/*" class="iig-ref-file-input" style="display:none">
                                                             </label>
-                                                            <div class="menu_button iig-ref-delete-btn" title="Remove"><i class="fa-solid fa-trash-can"></i></div>
+                                                            <div class="menu_button iig-ref-delete-btn" title="Удалить"><i class="fa-solid fa-trash-can"></i></div>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -7628,7 +7628,7 @@ function buildRefsModalHtml() {
                     </div>
 
                     <div class="iig-refs-col iig-refs-col-right">
-                        <div class="iig-refs-divider"><span>NPCs</span></div>
+                        <div class="iig-refs-divider"><span>НЕПИСИ</span></div>
                         <div class="iig-refs-row iig-refs-npcs">
                             ${npcSlotsHtml}
                         </div>
@@ -7720,7 +7720,7 @@ async function onRefsResetToGlobal() {
     clearAllRefB64Cache();
     renderRefSlots();
     updateRefScopeUI();
-    toastr.info('This chat now uses the global references', 'Image Generation', { timeOut: 2500 });
+    toastr.info('Этот чат теперь использует общий набор рефов', 'Image Generation', { timeOut: 2500 });
 }
 
 /** Слоты NPC: нужны и панели, и окну рефов, поэтому вынесены отдельно. */
@@ -7732,21 +7732,21 @@ function buildNpcSlotsHtml() {
                 <div class="iig-ref-thumb-wrap">
                     <img src="" alt="NPC" class="iig-ref-thumb">
                     <div class="iig-ref-empty-icon"><i class="fa-solid fa-user-plus"></i></div>
-                    <label class="iig-ref-upload-overlay" title="Upload photo">
+                    <label class="iig-ref-upload-overlay" title="Загрузить фото">
                         <i class="fa-solid fa-camera"></i>
                         <input type="file" accept="image/*" class="iig-ref-file-input" style="display:none">
                     </label>
                 </div>
                 <div class="iig-ref-info">
                     <div class="iig-ref-label">NPC ${i + 1}</div>
-                    <input type="text" class="text_pole iig-ref-name" placeholder="Name(s), comma-separated" value="">
+                    <input type="text" class="text_pole iig-ref-name" placeholder="Имя или имена через запятую" value="">
                 </div>
                 <div class="iig-ref-actions">
-                    <label class="menu_button iig-ref-upload-btn" title="Upload photo">
+                    <label class="menu_button iig-ref-upload-btn" title="Загрузить фото">
                         <i class="fa-solid fa-upload"></i>
                         <input type="file" accept="image/*" class="iig-ref-file-input" style="display:none">
                     </label>
-                    <div class="menu_button iig-ref-delete-btn" title="Remove"><i class="fa-solid fa-trash-can"></i></div>
+                    <div class="menu_button iig-ref-delete-btn" title="Удалить"><i class="fa-solid fa-trash-can"></i></div>
                 </div>
             </div>`;
     }
@@ -7773,40 +7773,40 @@ function createSettingsUI() {
             </div>
             <div class="inline-drawer-content">
                 <div class="iig-settings">
-                    <p class="iig-settings-intro">Generate images inline from chat — set up your provider, defaults, and character references below.</p>
+                    <p class="iig-settings-intro">Генерация картинок прямо в чате — настрой провайдера, значения по умолчанию и рефы персонажей ниже.</p>
                     <label class="checkbox_label">
                         <input type="checkbox" id="iig_enabled" ${settings.enabled ? 'checked' : ''}>
-                        <span>Enable image generation</span>
+                        <span>Включить генерацию картинок</span>
                     </label>
                     <label class="checkbox_label" style="margin-top: 6px;">
                         <input type="checkbox" id="iig_prompt_driven" ${settings.promptDriven ? 'checked' : ''}>
-                        <span>Prompt-driven generation (tag overrides UI)</span>
+                        <span>Приоритет у тега (тег важнее настроек)</span>
                     </label>
-                    <p class="hint">On: tag fields (<code>image_size</code>, <code>quality</code>, <code>preset</code>) win, UI is fallback. Off: UI values always apply. <code>aspect_ratio</code> is always tag-driven.</p>
+                    <p class="hint">Включено: побеждают поля тега (<code>image_size</code>, <code>quality</code>, <code>preset</code>), настройки — запасной вариант. Выключено: всегда применяются настройки. <code>aspect_ratio</code> всегда берётся из тега.</p>
                     
                     <hr>
 
                     <details class="iig-section iig-accordion" open>
-                        <summary><h4><i class="fa-solid fa-plug"></i> API Configuration</h4></summary>
+                        <summary><h4><i class="fa-solid fa-plug"></i> Подключение к API</h4></summary>
 
                         <!-- Preset save/load for quick provider swapping. -->
                         <div class="iig-presets-bar">
-                            <select id="iig_preset_select" class="flex1" title="Load a saved API preset">
-                                <option value="">-- Presets --</option>
+                            <select id="iig_preset_select" class="flex1" title="Загрузить сохранённый пресет подключения">
+                                <option value="">-- Пресеты --</option>
                                 ${(settings.presets || []).map(p => `<option value="${sanitizeForHtml(p.name)}" ${settings.activePresetName === p.name ? 'selected' : ''}>${sanitizeForHtml(p.name)}</option>`).join('')}
                             </select>
-                            <div id="iig_preset_save" class="menu_button iig-preset-btn" title="Save current API settings as a new preset (or overwrite existing)">
+                            <div id="iig_preset_save" class="menu_button iig-preset-btn" title="Сохранить текущие настройки как пресет (или перезаписать существующий)">
                                 <i class="fa-solid fa-floppy-disk"></i>
                             </div>
-                            <div id="iig_preset_delete" class="menu_button iig-preset-btn" title="Delete the selected preset">
+                            <div id="iig_preset_delete" class="menu_button iig-preset-btn" title="Удалить выбранный пресет">
                                 <i class="fa-solid fa-trash-can"></i>
                             </div>
                         </div>
-                        <p class="hint">Save <b>apiType, endpoint, key, model</b> per provider for quick swapping. Stored locally in your SillyTavern settings.</p>
+                        <p class="hint">Сохраняет <b>тип API, адрес, ключ и модель</b> для быстрого переключения между провайдерами. Хранится локально, в настройках твоей таверны.</p>
 
                         <div class="flex-row">
-                            <label for="iig_api_type">API Type
-                                <span class="iig-info" id="iig_api_type_info" tabindex="0" role="button" aria-label="API type info" title="${sanitizeForHtml(API_TYPE_TOOLTIPS[settings.apiType] || '')}">
+                            <label for="iig_api_type">Тип API
+                                <span class="iig-info" id="iig_api_type_info" tabindex="0" role="button" aria-label="Про тип API" title="${sanitizeForHtml(API_TYPE_TOOLTIPS[settings.apiType] || '')}">
                                     <i class="fa-solid fa-circle-question"></i>
                                 </span>
                             </label>
@@ -7818,53 +7818,53 @@ function createSettingsUI() {
                         </div>
 
                         <div class="flex-row" id="iig_endpoint_row">
-                            <label for="iig_endpoint">Endpoint URL</label>
+                            <label for="iig_endpoint">Адрес API</label>
                             <input type="text" id="iig_endpoint" class="text_pole flex1"
                                    value="${sanitizeForHtml(settings.endpoint)}"
                                    placeholder="${ENDPOINT_PLACEHOLDERS[settings.apiType] || 'https://your-provider.example'}">
                         </div>
-                        <p id="iig_endpoint_hint" class="hint">Include any path prefix your provider documents (e.g. <code>/compatible</code>, <code>/v1</code>); the extension appends the method suffix itself. The model dropdown lists whatever your provider returns.</p>
+                        <p id="iig_endpoint_hint" class="hint">Указывай префикс пути, если провайдер его требует (например <code>/compatible</code> или <code>/v1</code>) — окончание метода расширение допишет само. В списке моделей будет то, что вернёт провайдер.</p>
 
                         <div class="flex-row" id="iig_api_key_row">
-                            <label for="iig_api_key">API Key</label>
+                            <label for="iig_api_key">Ключ API</label>
                             <input type="password" id="iig_api_key" class="text_pole flex1"
                                    value="${sanitizeForHtml(settings.apiKey)}">
-                            <div id="iig_key_toggle" class="menu_button iig-key-toggle" title="Show/Hide">
+                            <div id="iig_key_toggle" class="menu_button iig-key-toggle" title="Показать или скрыть">
                                 <i class="fa-solid fa-eye"></i>
                             </div>
                         </div>
-                        <p id="iig_naistera_hint" class="hint ${settings.apiType === 'naistera' ? '' : 'iig-hidden'}">Naistera: paste token from their service. Endpoint auto-defaults to <code>naistera.org</code> if blank.</p>
+                        <p id="iig_naistera_hint" class="hint ${settings.apiType === 'naistera' ? '' : 'iig-hidden'}">Naistera: вставь токен из их сервиса. Если адрес пустой, подставится <code>naistera.org</code>.</p>
 
                         <div class="flex-row ${settings.apiType === 'naistera' ? 'iig-hidden' : ''}" id="iig_model_row">
-                            <label for="iig_model">Model</label>
+                            <label for="iig_model">Модель</label>
                             <select id="iig_model" class="flex1">
-                                ${settings.model ? `<option value="${sanitizeForHtml(settings.model)}" selected>${sanitizeForHtml(settings.model)}</option>` : '<option value="">-- Select model --</option>'}
+                                ${settings.model ? `<option value="${sanitizeForHtml(settings.model)}" selected>${sanitizeForHtml(settings.model)}</option>` : '<option value="">-- Выбери модель --</option>'}
                             </select>
-                            <div id="iig_refresh_models" class="menu_button iig-refresh-btn" title="Refresh models list">
+                            <div id="iig_refresh_models" class="menu_button iig-refresh-btn" title="Обновить список моделей">
                                 <i class="fa-solid fa-sync"></i>
                             </div>
                         </div>
 
-                        <div id="iig_test_connection" class="menu_button iig-test-connection" title="Test API connection">
+                        <div id="iig_test_connection" class="menu_button iig-test-connection" title="Проверить подключение">
                             <i class="fa-solid fa-wifi"></i> Test Connection
                         </div>
 
                         <!-- Advanced: escape hatches for non-standard providers. -->
                         <details class="iig-advanced" ${settings.pathOverride || settings.showAllModels ? 'open' : ''}>
-                            <summary><i class="fa-solid fa-wrench"></i> Advanced</summary>
+                            <summary><i class="fa-solid fa-wrench"></i> Дополнительно</summary>
                             <div class="iig-advanced-body">
                                 <div class="flex-row">
-                                    <label for="iig_path_override">Path override</label>
+                                    <label for="iig_path_override">Свой путь</label>
                                     <input type="text" id="iig_path_override" class="text_pole flex1"
                                            value="${sanitizeForHtml(settings.pathOverride || '')}"
-                                           placeholder="/custom/path (optional)">
+                                           placeholder="/свой/путь (необязательно)">
                                 </div>
-                                <p class="hint">Replaces the auto-appended path. Leave blank to use the default path for your API Type.</p>
+                                <p class="hint">Заменяет путь, который расширение дописывает само. Оставь пустым — будет путь по умолчанию для выбранного типа API.</p>
                                 <label class="checkbox_label" style="margin-top: 6px;">
                                     <input type="checkbox" id="iig_show_all_models" ${settings.showAllModels ? 'checked' : ''}>
-                                    <span>Show all models (disable keyword filter)</span>
+                                    <span>Показывать все модели (без фильтра)</span>
                                 </label>
-                                <p class="hint">Disables the built-in image-model keyword filter when listing <code>/v1/models</code> or <code>/v1beta/models</code>. Enable this if your provider's model names aren't recognized.</p>
+                                <p class="hint">Отключает встроенный фильтр, который оставляет в списке только модели для картинок. Включи, если твой провайдер называет модели непривычно и они пропадают из списка.</p>
                             </div>
                         </details>
                     </details>
@@ -7872,21 +7872,21 @@ function createSettingsUI() {
                     <hr>
 
                     <details class="iig-section iig-accordion">
-                        <summary><h4><i class="fa-solid fa-sliders"></i> Generation Settings</h4></summary>
+                        <summary><h4><i class="fa-solid fa-sliders"></i> Параметры генерации</h4></summary>
 
                         <!-- OpenAI params -->
                         <div class="flex-row ${settings.apiType !== 'openai' ? 'iig-hidden' : ''}" id="iig_size_row">
-                            <label for="iig_size">Size</label>
+                            <label for="iig_size">Размер</label>
                             <select id="iig_size" class="flex1">
-                                <option value="1024x1024" ${settings.size === '1024x1024' ? 'selected' : ''}>1024x1024 (Square)</option>
-                                <option value="1792x1024" ${settings.size === '1792x1024' ? 'selected' : ''}>1792x1024 (Landscape)</option>
-                                <option value="1024x1792" ${settings.size === '1024x1792' ? 'selected' : ''}>1024x1792 (Portrait)</option>
-                                <option value="512x512" ${settings.size === '512x512' ? 'selected' : ''}>512x512 (Small)</option>
+                                <option value="1024x1024" ${settings.size === '1024x1024' ? 'selected' : ''}>1024x1024 (квадрат)</option>
+                                <option value="1792x1024" ${settings.size === '1792x1024' ? 'selected' : ''}>1792x1024 (альбом)</option>
+                                <option value="1024x1792" ${settings.size === '1024x1792' ? 'selected' : ''}>1024x1792 (портрет)</option>
+                                <option value="512x512" ${settings.size === '512x512' ? 'selected' : ''}>512x512 (мелкий)</option>
                             </select>
                         </div>
                         
                         <div class="flex-row ${settings.apiType !== 'openai' ? 'iig-hidden' : ''}" id="iig_quality_row">
-                            <label for="iig_quality">Quality</label>
+                            <label for="iig_quality">Качество</label>
                             <select id="iig_quality" class="flex1">
                                 <option value="auto" ${settings.quality === 'auto' ? 'selected' : ''}>auto (gpt-image-*)</option>
                                 <option value="low" ${settings.quality === 'low' ? 'selected' : ''}>low (gpt-image-*)</option>
@@ -7896,66 +7896,66 @@ function createSettingsUI() {
                                 <option value="hd" ${settings.quality === 'hd' ? 'selected' : ''}>hd (dall-e-3)</option>
                             </select>
                         </div>
-                        <p class="hint ${settings.apiType !== 'openai' ? 'iig-hidden' : ''}" id="iig_quality_hint">auto/low/medium/high for <code>gpt-image-*</code> models; standard/hd for <code>dall-e-3</code>. Mismatches are auto-normalized.</p>
+                        <p class="hint ${settings.apiType !== 'openai' ? 'iig-hidden' : ''}" id="iig_quality_hint">auto/low/medium/high — для моделей <code>gpt-image-*</code>, standard/hd — для <code>dall-e-3</code>. Несовпадения расширение поправит само.</p>
 
                         <!-- Naistera params -->
                         <div class="flex-row ${settings.apiType === 'naistera' ? '' : 'iig-hidden'}" id="iig_naistera_model_row">
-                            <label for="iig_naistera_model">Model</label>
+                            <label for="iig_naistera_model">Модель</label>
                             <select id="iig_naistera_model" class="flex1">
                                 ${NAISTERA_MODELS.map(m => `<option value="${sanitizeForHtml(m)}" ${normalizeNaisteraModel(settings.naisteraModel) === m ? 'selected' : ''}>${sanitizeForHtml(naisteraModelDisplayLabel(m))}</option>`).join('')}
                             </select>
                         </div>
 
                         <div class="flex-row ${settings.apiType === 'naistera' && naisteraModelSupportsPreset(settings.naisteraModel) ? '' : 'iig-hidden'}" id="iig_naistera_preset_row">
-                            <label for="iig_naistera_preset">Preset</label>
+                            <label for="iig_naistera_preset">Пресет</label>
                             <select id="iig_naistera_preset" class="flex1">
-                                <option value="" ${!settings.naisteraPreset ? 'selected' : ''}>None</option>
-                                <option value="digital" ${settings.naisteraPreset === 'digital' ? 'selected' : ''}>Digital</option>
-                                <option value="realism" ${settings.naisteraPreset === 'realism' ? 'selected' : ''}>Realism</option>
+                                <option value="" ${!settings.naisteraPreset ? 'selected' : ''}>Нет</option>
+                                <option value="digital" ${settings.naisteraPreset === 'digital' ? 'selected' : ''}>Цифровой</option>
+                                <option value="realism" ${settings.naisteraPreset === 'realism' ? 'selected' : ''}>Реализм</option>
                             </select>
                         </div>
-                        <p class="hint ${settings.apiType === 'naistera' && naisteraModelSupportsPreset(settings.naisteraModel) ? '' : 'iig-hidden'}" id="iig_naistera_preset_hint">Grok style preset. Sent as <code>preset: "digital" | "realism"</code>. If you don't see a visual difference between the two, the Naistera upstream may be ignoring the field — try comparing against <b>None</b> to confirm it's doing anything at all.</p>
+                        <p class="hint ${settings.apiType === 'naistera' && naisteraModelSupportsPreset(settings.naisteraModel) ? '' : 'iig-hidden'}" id="iig_naistera_preset_hint">Стилевой пресет Grok. Уходит как <code>preset: "digital" | "realism"</code>. Если разницы между ними не видно, Naistera может просто игнорировать это поле — сравни с вариантом <b>Нет</b>, чтобы понять, работает ли оно вообще.</p>
                         <label class="checkbox_label ${settings.apiType === 'naistera' ? '' : 'iig-hidden'}" id="iig_naistera_refs_row" style="margin-top: 6px;">
                             <input type="checkbox" id="iig_naistera_send_refs" ${settings.naisteraSendRefs !== false ? 'checked' : ''}>
-                            <span>Send reference images (Naistera)</span>
+                            <span>Отправлять рефы (Naistera)</span>
                         </label>
-                        <p class="hint ${settings.apiType === 'naistera' ? '' : 'iig-hidden'}" id="iig_naistera_refs_hint">Grok sometimes fails with refs attached. NovelAI-via-Naistera ignores refs entirely. Uncheck to skip sending refs under this API type.</p>
+                        <p class="hint ${settings.apiType === 'naistera' ? '' : 'iig-hidden'}" id="iig_naistera_refs_hint">Grok иногда падает, когда к запросу приложены рефы, а NovelAI через Naistera их просто игнорирует. Сними галку, чтобы не отправлять рефы на этом типе API.</p>
 
                         <!-- Gemini params. Aspect ratio is tag-driven; only resolution is UI. -->
                         <div id="iig_gemini_params" class="${settings.apiType !== 'gemini' ? 'iig-hidden' : ''}">
                             <div class="flex-row">
-                                <label for="iig_image_size">Resolution</label>
+                                <label for="iig_image_size">Разрешение</label>
                                 <select id="iig_image_size" class="flex1">
-                                    <option value="1K" ${settings.imageSize === '1K' ? 'selected' : ''}>1K (default)</option>
+                                    <option value="1K" ${settings.imageSize === '1K' ? 'selected' : ''}>1K (по умолчанию)</option>
                                     <option value="2K" ${settings.imageSize === '2K' ? 'selected' : ''}>2K</option>
                                     <option value="4K" ${settings.imageSize === '4K' ? 'selected' : ''}>4K</option>
                                 </select>
                             </div>
                             <label class="checkbox_label" style="margin-top: 6px;">
                                 <input type="checkbox" id="iig_gemini_send_refs" ${settings.geminiSendRefs !== false ? 'checked' : ''}>
-                                <span>Send reference images (Gemini)</span>
+                                <span>Отправлять рефы (Gemini)</span>
                             </label>
-                            <p class="hint">Aspect ratio is set by the AI per image tag (<code>aspect_ratio</code> field). Override per-generation via OOC. Uncheck <b>Send reference images</b> to force text-only generation for providers/models that reject refs.</p>
+                            <p class="hint">Соотношение сторон модель задаёт в самом теге (поле <code>aspect_ratio</code>), разово поменять можно через OOC. Сними <b>Отправлять рефы</b>, если провайдер или модель их не принимает — тогда генерация пойдёт только по тексту.</p>
                         </div>
 
                         <!-- Video params (OpenAI/Gemini-style providers, e.g. rout.my). -->
                         <div id="iig_video_params" class="${(settings.apiType === 'openai' || settings.apiType === 'gemini') ? '' : 'iig-hidden'}">
                             <hr>
-                            <h4 style="margin-top:2px;"><i class="fa-solid fa-film"></i> Video</h4>
-                            <p class="hint iig-video-warning"><i class="fa-solid fa-triangle-exclamation"></i> <b>Experimental / under development.</b> Video generation is unstable and may fail (provider 502s, temporary links). Use at your own risk.</p>
+                            <h4 style="margin-top:2px;"><i class="fa-solid fa-film"></i> Видео</h4>
+                            <p class="hint iig-video-warning"><i class="fa-solid fa-triangle-exclamation"></i> <b>Экспериментально, в разработке.</b> Генерация видео нестабильна и может падать (502 у провайдера, временные ссылки). На свой страх и риск.</p>
                             <div class="flex-row">
-                                <label for="iig_video_model">Video model</label>
+                                <label for="iig_video_model">Модель для видео</label>
                                 <input type="text" id="iig_video_model" class="text_pole flex1"
                                        value="${sanitizeForHtml(settings.videoModel || '')}"
-                                       placeholder="e.g. google/veo-3.1-fast (blank = video off)">
+                                       placeholder="например google/veo-3.1-fast (пусто — видео выключено)">
                             </div>
                             <div class="flex-row">
-                                <label for="iig_video_duration">Default duration (s)</label>
+                                <label for="iig_video_duration">Длительность по умолчанию (с)</label>
                                 <input type="number" id="iig_video_duration" class="text_pole flex1"
                                        value="${settings.videoDuration}" min="1" max="60" step="1">
                             </div>
                             <div class="flex-row">
-                                <label for="iig_video_resolution">Default resolution</label>
+                                <label for="iig_video_resolution">Разрешение по умолчанию</label>
                                 <select id="iig_video_resolution" class="flex1">
                                     <option value="480p" ${settings.videoResolution === '480p' ? 'selected' : ''}>480p</option>
                                     <option value="720p" ${settings.videoResolution === '720p' ? 'selected' : ''}>720p</option>
@@ -7965,9 +7965,9 @@ function createSettingsUI() {
                             </div>
                             <label class="checkbox_label" style="margin-top: 6px;">
                                 <input type="checkbox" id="iig_video_audio" ${settings.videoAudio ? 'checked' : ''}>
-                                <span>Request audio track (when the model supports it)</span>
+                                <span>Просить звуковую дорожку (если модель умеет)</span>
                             </label>
-                            <p class="hint">Set a Video model to enable video generation (AI uses a <code>[VID:GEN]</code> tag; its fields override these defaults). Named refs are sent as <b>identity references</b> by default — these need a reference-capable model (e.g. <code>seedance-2.0-fast</code> or a Wan <code>-r2v</code> model); Veo is text/first-frame only. Videos take a few minutes and are re-hosted on your server.</p>
+                            <p class="hint">Укажи модель для видео, чтобы включить генерацию (модель ставит тег <code>[VID:GEN]</code>, его поля важнее этих настроек). Названные рефы по умолчанию уходят как <b>референсы внешности</b> — для этого нужна модель, которая их принимает (например <code>seedance-2.0-fast</code> или Wan с <code>-r2v</code>); Veo умеет только текст и первый кадр. Видео делается несколько минут и потом перекладывается на твой сервер.</p>
                         </div>
                     </details>
 
@@ -7994,7 +7994,7 @@ function createSettingsUI() {
         <div id="slay_sw_direct_api_section">
             <div class="flex-row" style="margin-top:6px;"><label>Формат API</label><select id="slay_sw_describe_api_format" class="flex1"><option value="auto">Авто (по имени модели)</option><option value="gemini">Gemini</option><option value="openai">OpenAI-compatible</option></select></div>
             <div class="flex-row" style="margin-top:6px;"><label>Endpoint</label><input type="text" id="slay_sw_describe_endpoint" class="text_pole flex1" placeholder="Из основных настроек"></div>
-            <div class="flex-row" style="margin-top:6px;"><label>API Key</label><input type="password" id="slay_sw_describe_key" class="text_pole flex1" placeholder="Из основных настроек"><div id="slay_sw_describe_key_toggle" class="menu_button iig-key-toggle" title="Show/Hide"><i class="fa-solid fa-eye"></i></div></div>
+            <div class="flex-row" style="margin-top:6px;"><label>Ключ API</label><input type="password" id="slay_sw_describe_key" class="text_pole flex1" placeholder="Из основных настроек"><div id="slay_sw_describe_key_toggle" class="menu_button iig-key-toggle" title="Показать или скрыть"><i class="fa-solid fa-eye"></i></div></div>
             <div class="flex-row" style="margin-top:6px;"><label>Модель</label><input type="text" id="slay_sw_describe_model" class="text_pole flex1" list="slay_sw_describe_model_list" autocomplete="off" spellcheck="false"><datalist id="slay_sw_describe_model_list"></datalist><div id="slay_sw_describe_refresh" class="menu_button iig-refresh-btn" title="Обновить список"><i class="fa-solid fa-sync"></i></div></div>
             <div id="slay_sw_describe_test" class="menu_button iig-test-connection" style="margin-top:8px;"><i class="fa-solid fa-wifi"></i> Тест</div>
         </div>
@@ -8023,61 +8023,61 @@ function createSettingsUI() {
 </div>
 
                     <details class="iig-section iig-accordion">
-                        <summary><h4><i class="fa-solid fa-rotate"></i> Retry Settings</h4></summary>
+                        <summary><h4><i class="fa-solid fa-rotate"></i> Повторные попытки</h4></summary>
                         
                         <div class="flex-row">
-                            <label for="iig_max_retries">Max Retries</label>
+                            <label for="iig_max_retries">Сколько раз повторять</label>
                             <input type="number" id="iig_max_retries" class="text_pole flex1" 
                                    value="${settings.maxRetries}" min="0" max="5">
                         </div>
                         
                         <div class="flex-row">
-                            <label for="iig_retry_delay">Delay (ms)</label>
+                            <label for="iig_retry_delay">Пауза между попытками (мс)</label>
                             <input type="number" id="iig_retry_delay" class="text_pole flex1" 
                                    value="${settings.retryDelay}" min="500" max="10000" step="500">
                         </div>
-                        <p class="hint">Auto-retry on 429/502/503/504 errors. Set to 0 for manual retry only.</p>
+                        <p class="hint">Автоповтор при ошибках 429/502/503/504. Поставь 0, чтобы повторять только вручную.</p>
                     </details>
 
                     <details class="iig-section iig-accordion">
-                        <summary><h4><i class="fa-solid fa-bolt"></i> Performance</h4></summary>
+                        <summary><h4><i class="fa-solid fa-bolt"></i> Производительность</h4></summary>
                         <label class="checkbox_label">
                             <input type="checkbox" id="iig_low_power" ${settings.lowPowerMode ? 'checked' : ''}>
-                            <span>Low-power mode</span>
+                            <span>Экономный режим</span>
                         </label>
-                        <p class="hint">Reduces animations and background work to lower CPU, battery, and heat on weaker devices.</p>
+                        <p class="hint">Убирает анимации и фоновую работу, чтобы меньше грузить процессор, батарею и не греть слабые устройства.</p>
                         <label class="checkbox_label" style="margin-top:6px;">
                             <input type="checkbox" id="iig_lp_anim" ${settings.lpDisableAnimations !== false ? 'checked' : ''} ${settings.lowPowerMode ? '' : 'disabled'}>
-                            <span>Disable animations</span>
+                            <span>Отключить анимации</span>
                         </label>
                         <label class="checkbox_label" style="margin-top:6px;">
                             <input type="checkbox" id="iig_lp_slow" ${settings.lpSlowUpdates !== false ? 'checked' : ''} ${settings.lowPowerMode ? '' : 'disabled'}>
-                            <span>Slower background updates</span>
+                            <span>Реже обновлять в фоне</span>
                         </label>
-                        <p class="hint">Sub-options apply only while Low-power mode is on. The system "Reduce Motion" accessibility setting also disables animations automatically.</p>
+                        <p class="hint">Эти два пункта работают только при включённом экономном режиме. Системная настройка «уменьшить движение» тоже отключает анимации сама.</p>
                     </details>
 
                     <details class="iig-section iig-accordion">
-                        <summary><h4><i class="fa-solid fa-bug"></i> Debug</h4></summary>
+                        <summary><h4><i class="fa-solid fa-bug"></i> Отладка</h4></summary>
                         <div id="iig_export_logs" class="menu_button iig-export-logs-btn">
                             <i class="fa-solid fa-download"></i> Export Logs
                         </div>
-                        <p class="hint">Download extension logs for troubleshooting.</p>
+                        <p class="hint">Скачать логи расширения для разбора проблем.</p>
                     </details>
                     
                     <!-- Maintenance: force-flush settings + clear server ref folder. -->
                     <div class="iig-maintenance-row">
-                        <div id="iig_manual_save" class="menu_button iig-maint-btn" title="Force-save extension settings now (bypasses debounce). Mobile browsers sometimes kill pending writes when the tab is backgrounded; this button guarantees a durable write.">
+                        <div id="iig_manual_save" class="menu_button iig-maint-btn" title="Немедленно сохранить настройки, не дожидаясь отложенной записи. Мобильные браузеры иногда убивают отложенное сохранение при сворачивании вкладки — эта кнопка гарантирует запись.">
                             <i class="fa-solid fa-floppy-disk"></i> Save settings
                         </div>
-                        <div id="iig_clear_refs_folder" class="menu_button iig-maint-btn iig-maint-danger" title="Delete every file in the iig_refs folder on the SillyTavern server. Useful if you want to start fresh; all currently-used ref slots will be uploaded again on next use.">
+                        <div id="iig_clear_refs_folder" class="menu_button iig-maint-btn iig-maint-danger" title="Удалить все файлы из папки iig_refs на сервере таверны. Пригодится, чтобы начать с чистого листа: рефы из занятых слотов зальются заново при следующем использовании.">
                             <i class="fa-solid fa-broom"></i> Clear refs folder
                         </div>
                     </div>
                     <p id="iig_save_status" class="hint" style="text-align:center;font-size:0.85em;"></p>
 
                     <!-- Shown only if ST-ImageManager is installed (feature-detected at render). -->
-                    <div id="iig_open_image_manager" class="menu_button iig-open-im-btn iig-hidden" title="Open the Image Manager extension to browse, sort, and clean up your generated images.">
+                    <div id="iig_open_image_manager" class="menu_button iig-open-im-btn iig-hidden" title="Открыть Image Manager, чтобы просмотреть, отсортировать и почистить сгенерированные картинки.">
                         <i class="fa-solid fa-images"></i> Open Image Manager
                     </div>
 
@@ -8731,7 +8731,7 @@ function bindRefSlotEvents() {
                 if (thumb) thumb.src = savedPath;
 
                 iigLog('INFO', `Ref slot ${label}: saved to ${savedPath}`);
-                toastr.success('Photo saved to server', 'Image Generation', { timeOut: 2000 });
+                toastr.success('Фото сохранено на сервере', 'Image Generation', { timeOut: 2000 });
                 pushRecentRef(savedPath);
 
                 // Fire-and-forget delete of the previous file to prevent iig_refs
@@ -8780,7 +8780,7 @@ function bindRefSlotEvents() {
 
             const label = refType === 'npc' ? `NPC ${npcIndex}` : refType;
             iigLog('INFO', `Ref slot ${label}: cleared`);
-            toastr.info('Slot cleared', 'Image Generation', { timeOut: 2000 });
+            toastr.info('Слот очищен', 'Image Generation', { timeOut: 2000 });
 
             // Cleanup: global deletes always; per-chat deletes only if unshared.
             if (prevPath) {
@@ -8957,7 +8957,7 @@ function bindSettingsEvents() {
             const select = document.getElementById('iig_model');
             const currentModel = settings.model;
             
-            select.innerHTML = '<option value="">-- Select model --</option>';
+            select.innerHTML = '<option value="">-- Выбери модель --</option>';
             
             for (const model of models) {
                 const option = document.createElement('option');
@@ -8967,7 +8967,7 @@ function bindSettingsEvents() {
                 select.appendChild(option);
             }
             
-            toastr.success(`Found ${models.length} model(s)`, 'Image Generation');
+            toastr.success(`Найдено моделей: ${models.length}`, 'Image Generation');
         } catch (error) {
             toastr.error('Failed to load models', 'Image Generation');
         } finally {
@@ -9060,7 +9060,7 @@ function bindSettingsEvents() {
         if (!sel) return;
         const presets = Array.isArray(settings.presets) ? settings.presets : [];
         const currentValue = settings.activePresetName || '';
-        sel.innerHTML = '<option value="">-- Presets --</option>'
+        sel.innerHTML = '<option value="">-- Пресеты --</option>'
             + presets.map(p => {
                 const name = sanitizeForHtml(p.name);
                 const selected = p.name === currentValue ? ' selected' : '';
@@ -9112,7 +9112,7 @@ function bindSettingsEvents() {
             modelSel.value = settings.model || '';
         }
         updateVisibility();
-        toastr.success(`Preset "${preset.name}" loaded`, 'Image Generation', { timeOut: 2500 });
+        toastr.success(`Пресет «${preset.name}» загружен`, 'Image Generation', { timeOut: 2500 });
     });
 
     document.getElementById('iig_preset_save')?.addEventListener('click', () => {
@@ -9129,10 +9129,10 @@ function bindSettingsEvents() {
         if (idx >= 0) {
             if (!window.confirm(`Preset "${name}" exists. Overwrite?`)) return;
             settings.presets[idx] = snap;
-            toastr.success(`Preset "${name}" overwritten`, 'Image Generation', { timeOut: 2500 });
+            toastr.success(`Пресет «${name}» перезаписан`, 'Image Generation', { timeOut: 2500 });
         } else {
             settings.presets.push(snap);
-            toastr.success(`Preset "${name}" saved`, 'Image Generation', { timeOut: 2500 });
+            toastr.success(`Пресет «${name}» сохранён`, 'Image Generation', { timeOut: 2500 });
         }
         settings.activePresetName = name;
         saveSettings({ sync: true });
@@ -9143,7 +9143,7 @@ function bindSettingsEvents() {
         const sel = document.getElementById('iig_preset_select');
         const name = sel?.value;
         if (!name) {
-            toastr.info('Select a preset to delete first', 'Image Generation', { timeOut: 2500 });
+            toastr.info('Сначала выбери пресет для удаления', 'Image Generation', { timeOut: 2500 });
             return;
         }
         if (!window.confirm(`Delete preset "${name}"?`)) return;
@@ -9151,7 +9151,7 @@ function bindSettingsEvents() {
         if (settings.activePresetName === name) settings.activePresetName = '';
         saveSettings({ sync: true });
         refreshPresetDropdown();
-        toastr.info(`Preset "${name}" deleted`, 'Image Generation', { timeOut: 2500 });
+        toastr.info(`Пресет «${name}» удалён`, 'Image Generation', { timeOut: 2500 });
     });
     
     document.getElementById('iig_max_retries')?.addEventListener('input', (e) => {
@@ -9176,7 +9176,7 @@ function bindSettingsEvents() {
         openImBtn.classList.remove('iig-hidden');
         openImBtn.addEventListener('click', () => {
             if (!runSlashCommand('/image-manager')) {
-                toastr.warning('Could not open Image Manager (slash command unavailable).', 'Image Generation');
+                toastr.warning('Не удалось открыть Image Manager — слэш-команда недоступна.', 'Image Generation');
             }
         });
     }
@@ -9255,7 +9255,7 @@ function bindSettingsEvents() {
         try {
             const files = await listIigRefsFolder();
             if (files.length === 0) {
-                toastr.info('iig_refs folder is already empty', 'Image Generation', { timeOut: 2500 });
+                toastr.info('Папка iig_refs и так пуста', 'Image Generation', { timeOut: 2500 });
                 return;
             }
 
@@ -9306,7 +9306,7 @@ function bindSettingsEvents() {
                     const resp = await fetchWithTimeout(testUrl, { method: 'HEAD' }, 20000).catch(() => null);
                     if (!resp) throw new Error('Endpoint unreachable (network or CORS)');
                     if (resp.ok) {
-                        toastr.success('Connection OK', 'Image Generation');
+                        toastr.success('Подключение работает', 'Image Generation');
                     } else {
                         toastr.warning(`Endpoint returned HTTP ${resp.status}`, 'Image Generation');
                     }
@@ -9318,7 +9318,7 @@ function bindSettingsEvents() {
                     if (!s.apiKey) throw new Error('Set API key first');
                     const models = await fetchModels();
                     if (models.length > 0) {
-                        toastr.success(`Connection OK — ${models.length} model(s) found`, 'Image Generation');
+                        toastr.success(`Подключение работает — найдено моделей: ${models.length}`, 'Image Generation');
                     } else {
                         toastr.warning('Connected but no models returned — try Advanced → Show all models, or check your endpoint', 'Image Generation');
                     }
@@ -9476,11 +9476,11 @@ function initLightbox() {
         <div class="iig-lightbox-content">
             <img class="iig-lightbox-img" src="" alt="Full-size preview">
             <div class="iig-lightbox-actions">
-                <button class="iig-lightbox-action-btn iig-lb-download" title="Download">${SVG_ICON_DOWNLOAD}</button>
-                <button class="iig-lightbox-action-btn iig-lb-regen" title="Regenerate">${SVG_ICON_REGENERATE}</button>
+                <button class="iig-lightbox-action-btn iig-lb-download" title="Скачать">${SVG_ICON_DOWNLOAD}</button>
+                <button class="iig-lightbox-action-btn iig-lb-regen" title="Перегенерировать">${SVG_ICON_REGENERATE}</button>
             </div>
             <div class="iig-lightbox-caption"></div>
-            <button class="iig-lightbox-close" title="Close"><i class="fa-solid fa-xmark"></i></button>
+            <button class="iig-lightbox-close" title="Закрыть"><i class="fa-solid fa-xmark"></i></button>
         </div>
     `;
     document.body.appendChild(overlay);
