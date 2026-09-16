@@ -11197,8 +11197,8 @@ function buildNpcSlotsHtml() {
 }
 
 function buildRefsModalHtml() {
-    // Two columns: main cast on the left, NPCs on the right. The window CSS is
-    // written against this shape — one flat grid makes both columns collapse.
+    // Single flow: main cast on top, divider, then NPCs three-up. Both rows use
+    // the same track width so the columns line up across the divider.
     return `
         <div id="iig-refs-modal-overlay">
             <div id="iig-refs-modal">
@@ -11207,16 +11207,13 @@ function buildRefsModalHtml() {
                     <div class="sw-modal-close" id="iig_refs_close" title="Закрыть"><i class="fa-solid fa-xmark"></i></div>
                 </div>
                 <div class="iig-refs-modal-body">
-                    <div class="iig-refs-col iig-refs-col-left">
-                        <div class="iig-refs-grid">
-                            <div class="iig-refs-row iig-refs-main">
-                                ${buildMainSlotsHtml()}
-                            </div>
+                    <div class="iig-refs-grid">
+                        <div class="iig-refs-row iig-refs-main">
+                            ${buildMainSlotsHtml()}
                         </div>
-                    </div>
 
-                    <div class="iig-refs-col iig-refs-col-right">
                         <div class="iig-refs-divider"><span data-i18n="iig_ui_npcs">NPCs</span></div>
+
                         <div class="iig-refs-row iig-refs-npcs">
                             ${buildNpcSlotsHtml()}
                         </div>
