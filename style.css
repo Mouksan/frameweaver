@@ -4491,3 +4491,15 @@ body.iig-low-power [class*="iig-"]::after {
     .iig-refs-col-left { flex: 0 0 auto; }
     #iig-refs-modal { max-height: 96dvh; }
 }
+
+
+/* ---- Refs window: neutralise panel-specific grid spacing ---- */
+#iig-refs-modal .iig-refs-grid {
+    padding-top: 0;
+    margin-top: auto;
+    gap: 0;
+}
+
+#iig-refs-modal .iig-refs-col-right .iig-refs-divider {
+    margin-top: 0;
+}

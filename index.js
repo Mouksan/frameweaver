@@ -11146,15 +11146,10 @@ function buildNpcSlotHtml(i) {
             </div>`;
 }
 
-function buildRefsGridHtml() {
-    let npcSlotsHtml = '';
-    for (let i = 0; i < IIG_NPC_SLOT_COUNT; i++) {
-        npcSlotsHtml += buildNpcSlotHtml(i);
-    }
-
+function buildMainSlotsHtml() {
+    // Stock char/user slot markup, reused verbatim so the ref-packs pill,
+    // aria labels and i18n hooks survive the move out of the panel.
     return `
-        <div class="iig-refs-grid">
-            <div class="iig-refs-row iig-refs-main">
                                 <div class="iig-ref-slot" data-ref-type="char">
                                     <div class="iig-ref-thumb-wrap">
                                         <img src="" alt="Char" data-i18n="[alt]iig_ui_charAlt" class="iig-ref-thumb">
@@ -11192,22 +11187,18 @@ function buildRefsGridHtml() {
                                          ${refPacksPillHtml()}
                                          <button type="button" class="menu_button iig-ref-delete-btn" title="Remove reference" data-i18n="[title]iig_ui_removeReference"><i class="fa-solid fa-trash-can"></i><span data-i18n="iig_ui_remove">Remove</span></button>
                                      </div>
-                                </div>
-                            </div>
+                                </div>`;
+}
 
-                            <div class="iig-refs-divider"><span data-i18n="iig_ui_npcs">NPCs</span></div>
-
-            </div>
-
-            <div class="iig-refs-divider"><span data-i18n="iig_ui_npcs">NPCs</span></div>
-
-            <div class="iig-refs-row iig-refs-npcs">
-                ${npcSlotsHtml}
-            </div>
-        </div>`;
+function buildNpcSlotsHtml() {
+    let html = '';
+    for (let i = 0; i < IIG_NPC_SLOT_COUNT; i++) html += buildNpcSlotHtml(i);
+    return html;
 }
 
 function buildRefsModalHtml() {
+    // Two columns: main cast on the left, NPCs on the right. The window CSS is
+    // written against this shape — one flat grid makes both columns collapse.
     return `
         <div id="iig-refs-modal-overlay">
             <div id="iig-refs-modal">
@@ -11216,7 +11207,20 @@ function buildRefsModalHtml() {
                     <div class="sw-modal-close" id="iig_refs_close" title="Закрыть"><i class="fa-solid fa-xmark"></i></div>
                 </div>
                 <div class="iig-refs-modal-body">
-                    ${buildRefsGridHtml()}
+                    <div class="iig-refs-col iig-refs-col-left">
+                        <div class="iig-refs-grid">
+                            <div class="iig-refs-row iig-refs-main">
+                                ${buildMainSlotsHtml()}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="iig-refs-col iig-refs-col-right">
+                        <div class="iig-refs-divider"><span data-i18n="iig_ui_npcs">NPCs</span></div>
+                        <div class="iig-refs-row iig-refs-npcs">
+                            ${buildNpcSlotsHtml()}
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>`;
