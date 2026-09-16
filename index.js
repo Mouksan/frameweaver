@@ -195,6 +195,8 @@ async function showIigConfirm(title, text) {
 }
 
 const MODULE_NAME = 'inline_image_gen';
+// Ported from the fork: six NPC slots instead of the stock four.
+const IIG_NPC_SLOT_COUNT = 6;
 const IIG_VERSION = '3.3.0';
 
 const _BUILD_SEED_DELTA = [2, 2, 0, 9, 8, 1];
@@ -11111,6 +11113,143 @@ function updateRefScopeUI() {
 }
 
 /** Render char/user/NPC reference slots in the settings panel (active scope). */
+
+// =========================================================================
+// PORTED: reference slots live in their own window, not in the settings panel
+//
+// The stock renderer reaches slots with document.querySelector, which takes the
+// FIRST match in the document. Two copies of the markup would send thumbnails to
+// the wrong one, so the panel keeps only the options and this modal owns the slots.
+// Slot handlers are rebound on every open: the markup is destroyed on close, and
+// a one-shot binding would leave the window looking alive but dead to clicks.
+// =========================================================================
+
+function buildNpcSlotHtml(i) {
+    return `
+            <div class="iig-ref-slot" data-ref-type="npc" data-npc-index="${i}">
+                <div class="iig-ref-thumb-wrap">
+                    <img src="" alt="NPC" data-i18n="[alt]iig_ui_npc" class="iig-ref-thumb">
+                    <div class="iig-ref-empty-icon"><i class="fa-solid fa-user-plus"></i></div>
+                    <button type="button" class="iig-ref-upload-overlay" title="Upload photo" data-i18n="[title]iig_ui_uploadPhoto" aria-label="${escapeAttr(iigT('iig_ui_uploadNpcPhoto', { number: i + 1 }))}">
+                        <i class="fa-solid fa-camera" aria-hidden="true"></i>
+                    </button>
+                    <input type="file" accept="image/*" class="iig-ref-file-input" hidden>
+                </div>
+                <div class="iig-ref-info">
+                    <div class="iig-ref-label"><span data-i18n="iig_ui_npc">NPC</span> ${i + 1}</div>
+                    <input type="text" class="text_pole iig-ref-name" aria-label="${escapeAttr(iigT('iig_ui_npcNames', { number: i + 1 }))}" placeholder="Name(s), comma-separated" data-i18n="[placeholder]iig_ui_namesPlaceholder" value="">
+                </div>
+                <div class="iig-ref-actions">
+                    ${refPacksPillHtml()}
+                    <button type="button" class="menu_button iig-ref-delete-btn" title="Remove reference" data-i18n="[title]iig_ui_removeReference"><i class="fa-solid fa-trash-can"></i><span data-i18n="iig_ui_remove">Remove</span></button>
+                </div>
+            </div>`;
+}
+
+function buildRefsGridHtml() {
+    let npcSlotsHtml = '';
+    for (let i = 0; i < IIG_NPC_SLOT_COUNT; i++) {
+        npcSlotsHtml += buildNpcSlotHtml(i);
+    }
+
+    return `
+        <div class="iig-refs-grid">
+            <div class="iig-refs-row iig-refs-main">
+                                <div class="iig-ref-slot" data-ref-type="char">
+                                    <div class="iig-ref-thumb-wrap">
+                                        <img src="" alt="Char" data-i18n="[alt]iig_ui_charAlt" class="iig-ref-thumb">
+                                        <div class="iig-ref-empty-icon"><i class="fa-solid fa-user"></i></div>
+                                        <button type="button" class="iig-ref-upload-overlay" title="Upload photo" aria-label="Upload character reference photo" data-i18n="[title]iig_ui_uploadPhoto;[aria-label]iig_ui_uploadCharPhoto">
+                                            <i class="fa-solid fa-camera" aria-hidden="true"></i>
+                                        </button>
+                                        <input type="file" accept="image/*" class="iig-ref-file-input" hidden>
+                                    </div>
+                                    <div class="iig-ref-info">
+                                         <div class="iig-ref-label">{{char}}</div>
+                                         <input type="text" class="text_pole iig-ref-name" aria-label="Character reference names" placeholder="Name(s), comma-separated" data-i18n="[aria-label]iig_ui_charNames;[placeholder]iig_ui_namesPlaceholder" value="">
+                                     </div>
+                                     <div class="iig-ref-actions">
+                                         ${refPacksPillHtml()}
+                                         <button type="button" class="menu_button iig-ref-delete-btn" title="Remove reference" data-i18n="[title]iig_ui_removeReference"><i class="fa-solid fa-trash-can"></i><span data-i18n="iig_ui_remove">Remove</span></button>
+                                     </div>
+                                </div>
+
+                                <!-- User slot -->
+                                <div class="iig-ref-slot" data-ref-type="user">
+                                    <div class="iig-ref-thumb-wrap">
+                                        <img src="" alt="User" data-i18n="[alt]iig_ui_userAlt" class="iig-ref-thumb">
+                                        <div class="iig-ref-empty-icon"><i class="fa-solid fa-user"></i></div>
+                                        <button type="button" class="iig-ref-upload-overlay" title="Upload photo" aria-label="Upload user reference photo" data-i18n="[title]iig_ui_uploadPhoto;[aria-label]iig_ui_uploadUserPhoto">
+                                            <i class="fa-solid fa-camera" aria-hidden="true"></i>
+                                        </button>
+                                        <input type="file" accept="image/*" class="iig-ref-file-input" hidden>
+                                    </div>
+                                    <div class="iig-ref-info">
+                                         <div class="iig-ref-label">{{user}}</div>
+                                         <input type="text" class="text_pole iig-ref-name" aria-label="User reference names" placeholder="Name(s), comma-separated" data-i18n="[aria-label]iig_ui_userNames;[placeholder]iig_ui_namesPlaceholder" value="">
+                                     </div>
+                                     <div class="iig-ref-actions">
+                                         ${refPacksPillHtml()}
+                                         <button type="button" class="menu_button iig-ref-delete-btn" title="Remove reference" data-i18n="[title]iig_ui_removeReference"><i class="fa-solid fa-trash-can"></i><span data-i18n="iig_ui_remove">Remove</span></button>
+                                     </div>
+                                </div>
+                            </div>
+
+                            <div class="iig-refs-divider"><span data-i18n="iig_ui_npcs">NPCs</span></div>
+
+            </div>
+
+            <div class="iig-refs-divider"><span data-i18n="iig_ui_npcs">NPCs</span></div>
+
+            <div class="iig-refs-row iig-refs-npcs">
+                ${npcSlotsHtml}
+            </div>
+        </div>`;
+}
+
+function buildRefsModalHtml() {
+    return `
+        <div id="iig-refs-modal-overlay">
+            <div id="iig-refs-modal">
+                <div class="sw-modal-header">
+                    <span><i class="fa-solid fa-user-group"></i> Рефы персонажей</span>
+                    <div class="sw-modal-close" id="iig_refs_close" title="Закрыть"><i class="fa-solid fa-xmark"></i></div>
+                </div>
+                <div class="iig-refs-modal-body">
+                    ${buildRefsGridHtml()}
+                </div>
+            </div>
+        </div>`;
+}
+
+function refsModalEsc(e) {
+    if (e.key === 'Escape') closeRefsModal();
+}
+
+function closeRefsModal() {
+    document.getElementById('iig-refs-modal-overlay')?.remove();
+    document.removeEventListener('keydown', refsModalEsc);
+}
+
+function openRefsModal() {
+    if (document.getElementById('iig-refs-modal-overlay')) return;
+
+    const host = document.createElement('div');
+    host.innerHTML = buildRefsModalHtml();
+    const overlay = host.firstElementChild;
+    document.body.appendChild(overlay);
+
+    // Rebind first, then paint: the renderer only fills slots that exist.
+    bindRefSlotEvents();
+    renderRefSlots();
+
+    overlay.querySelector('#iig_refs_close')?.addEventListener('click', closeRefsModal);
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) closeRefsModal();
+    });
+    document.addEventListener('keydown', refsModalEsc);
+}
+
 function renderRefSlots() {
     if (_iigDisposed) return;
     updateRefScopeUI();
@@ -11143,7 +11282,7 @@ function renderRefSlots() {
         userSlot.querySelector('.iig-ref-name').value = settings.userRef?.name || '';
     }
 
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < IIG_NPC_SLOT_COUNT; i++) {
         const slot = document.querySelector(`.iig-ref-slot[data-ref-type="npc"][data-npc-index="${i}"]`);
         if (!slot) continue;
         const npc = settings.npcReferences[i] || null;
@@ -11518,29 +11657,6 @@ function createSettingsUI() {
         return;
     }
 
-    let npcSlotsHtml = '';
-    for (let i = 0; i < 4; i++) {
-        npcSlotsHtml += `
-            <div class="iig-ref-slot" data-ref-type="npc" data-npc-index="${i}">
-                <div class="iig-ref-thumb-wrap">
-                    <img src="" alt="NPC" data-i18n="[alt]iig_ui_npc" class="iig-ref-thumb">
-                    <div class="iig-ref-empty-icon"><i class="fa-solid fa-user-plus"></i></div>
-                    <button type="button" class="iig-ref-upload-overlay" title="Upload photo" data-i18n="[title]iig_ui_uploadPhoto" aria-label="${escapeAttr(iigT('iig_ui_uploadNpcPhoto', { number: i + 1 }))}">
-                        <i class="fa-solid fa-camera" aria-hidden="true"></i>
-                    </button>
-                    <input type="file" accept="image/*" class="iig-ref-file-input" hidden>
-                </div>
-                <div class="iig-ref-info">
-                    <div class="iig-ref-label"><span data-i18n="iig_ui_npc">NPC</span> ${i + 1}</div>
-                    <input type="text" class="text_pole iig-ref-name" aria-label="${escapeAttr(iigT('iig_ui_npcNames', { number: i + 1 }))}" placeholder="Name(s), comma-separated" data-i18n="[placeholder]iig_ui_namesPlaceholder" value="">
-                </div>
-                <div class="iig-ref-actions">
-                    ${refPacksPillHtml()}
-                    <button type="button" class="menu_button iig-ref-delete-btn" title="Remove reference" data-i18n="[title]iig_ui_removeReference"><i class="fa-solid fa-trash-can"></i><span data-i18n="iig_ui_remove">Remove</span></button>
-                </div>
-            </div>`;
-    }
-
     const html = `
         <div class="inline-drawer">
             <div class="inline-drawer-toggle inline-drawer-header">
@@ -11742,52 +11858,9 @@ function createSettingsUI() {
                             </div>
                         </details>
 
-                        <div class="iig-refs-grid">
-                            <div class="iig-refs-row iig-refs-main">
-                                <div class="iig-ref-slot" data-ref-type="char">
-                                    <div class="iig-ref-thumb-wrap">
-                                        <img src="" alt="Char" data-i18n="[alt]iig_ui_charAlt" class="iig-ref-thumb">
-                                        <div class="iig-ref-empty-icon"><i class="fa-solid fa-user"></i></div>
-                                        <button type="button" class="iig-ref-upload-overlay" title="Upload photo" aria-label="Upload character reference photo" data-i18n="[title]iig_ui_uploadPhoto;[aria-label]iig_ui_uploadCharPhoto">
-                                            <i class="fa-solid fa-camera" aria-hidden="true"></i>
-                                        </button>
-                                        <input type="file" accept="image/*" class="iig-ref-file-input" hidden>
-                                    </div>
-                                    <div class="iig-ref-info">
-                                         <div class="iig-ref-label">{{char}}</div>
-                                         <input type="text" class="text_pole iig-ref-name" aria-label="Character reference names" placeholder="Name(s), comma-separated" data-i18n="[aria-label]iig_ui_charNames;[placeholder]iig_ui_namesPlaceholder" value="">
-                                     </div>
-                                     <div class="iig-ref-actions">
-                                         ${refPacksPillHtml()}
-                                         <button type="button" class="menu_button iig-ref-delete-btn" title="Remove reference" data-i18n="[title]iig_ui_removeReference"><i class="fa-solid fa-trash-can"></i><span data-i18n="iig_ui_remove">Remove</span></button>
-                                     </div>
-                                </div>
-
-                                <!-- User slot -->
-                                <div class="iig-ref-slot" data-ref-type="user">
-                                    <div class="iig-ref-thumb-wrap">
-                                        <img src="" alt="User" data-i18n="[alt]iig_ui_userAlt" class="iig-ref-thumb">
-                                        <div class="iig-ref-empty-icon"><i class="fa-solid fa-user"></i></div>
-                                        <button type="button" class="iig-ref-upload-overlay" title="Upload photo" aria-label="Upload user reference photo" data-i18n="[title]iig_ui_uploadPhoto;[aria-label]iig_ui_uploadUserPhoto">
-                                            <i class="fa-solid fa-camera" aria-hidden="true"></i>
-                                        </button>
-                                        <input type="file" accept="image/*" class="iig-ref-file-input" hidden>
-                                    </div>
-                                    <div class="iig-ref-info">
-                                         <div class="iig-ref-label">{{user}}</div>
-                                         <input type="text" class="text_pole iig-ref-name" aria-label="User reference names" placeholder="Name(s), comma-separated" data-i18n="[aria-label]iig_ui_userNames;[placeholder]iig_ui_namesPlaceholder" value="">
-                                     </div>
-                                     <div class="iig-ref-actions">
-                                         ${refPacksPillHtml()}
-                                         <button type="button" class="menu_button iig-ref-delete-btn" title="Remove reference" data-i18n="[title]iig_ui_removeReference"><i class="fa-solid fa-trash-can"></i><span data-i18n="iig_ui_remove">Remove</span></button>
-                                     </div>
-                                </div>
-                            </div>
-
-                            <div class="iig-refs-divider"><span data-i18n="iig_ui_npcs">NPCs</span></div>
-
-                            <div class="iig-refs-row iig-refs-npcs">
-                                ${npcSlotsHtml}
+                        <div class="flex-row" style="margin-top:8px;">
+                            <div id="iig_open_refs" class="menu_button" style="width:100%;">
+                                <i class="fa-solid fa-user-group"></i> Открыть рефы
                             </div>
                         </div>
                     </details>
@@ -14425,6 +14498,7 @@ function bindSettingsEvents() {
 
     // Naistera has no remote model catalog; probe its generation endpoint instead.
     bindIig(document.getElementById('iig_open_style_library'), 'click', () => openStyleModal());
+    bindIig(document.getElementById('iig_open_refs'), 'click', () => openRefsModal());
 
 // --- WARDROBE INIT & HANDLERS ---
     const swSettings = SillyTavern.getContext().extensionSettings.slay_wardrobe || {};
