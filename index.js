@@ -809,6 +809,7 @@ const defaultSettings = Object.freeze({
     naisteraModel: 'grok',          // 'grok' | 'grok-pro' | 'nano banana 2' | 'novelai'
     // User toggle to skip refs regardless of model capability.
     naisteraSendRefs: true,
+    naisteraNegativePrompt: '',      // only sent to models that declare support
     // Advanced escape hatches for non-standard providers.
     pathOverride: '',               // replaces the auto-appended URL suffix
     showAllModels: false,           // disable fetchModels() keyword filter
@@ -939,6 +940,121 @@ function resolveRoutMyNovelAiModel(modelId, aspectRatio) {
 // Naistera upstreams via /api/generate.
 const NAISTERA_MODELS = Object.freeze(['grok', 'grok-pro', 'nano banana 2', 'novelai']);
 
+// Naistera serves its model list per API token, so the catalogue is fetched
+// rather than hardcoded. NAISTERA_MODELS above stays as the offline fallback:
+// if discovery fails, the dropdown keeps working with the previously known set
+// instead of collapsing to nothing.
+let naisteraCatalog = new Map();
+let naisteraCatalogStatus = { authenticated: false, tier: null, publicFallback: false, loadedAt: 0 };
+
+function getNaisteraModelIds() {
+    return naisteraCatalog.size > 0 ? [...naisteraCatalog.keys()] : [...NAISTERA_MODELS];
+}
+
+function getNaisteraCatalogEntry(model) {
+    return naisteraCatalog.get(normalizeNaisteraModel(model)) || null;
+}
+
+async function fetchNaisteraModels(settings = getSettings()) {
+    const endpoint = (getEffectiveEndpoint(settings) || DEFAULT_ENDPOINTS.naistera)
+        .replace(/\/api\/generate\/?$/i, '')
+        .replace(/\/$/, '');
+    const url = `${endpoint}/api/models`;
+
+    const request = (authenticated) => {
+        const headers = { 'Accept': 'application/json' };
+        if (authenticated && settings.apiKey) headers.Authorization = `Bearer ${settings.apiKey}`;
+        return fetch(url, { method: 'GET', headers });
+    };
+
+    let response;
+    let publicFallback = false;
+    try {
+        response = await request(true);
+    } catch (error) {
+        // A blocked authenticated call still leaves the public catalogue usable.
+        if (!settings.apiKey || error?.name !== 'TypeError') throw error;
+        iigLog('WARN', 'Naistera authenticated model discovery was blocked; retrying the public catalogue');
+        publicFallback = true;
+        response = await request(false);
+    }
+
+    if (!response.ok) {
+        const detail = await response.text().catch(() => '');
+        throw new Error(`Naistera /api/models ${response.status}: ${String(detail).slice(0, 300)}`);
+    }
+
+    const payload = await response.json();
+    const models = (Array.isArray(payload?.models) ? payload.models : [])
+        .filter(model => model?.id && model.visible !== false && model.deprecated !== true)
+        .map(model => ({
+            id: String(model.id),
+            name: String(model.name || model.id),
+            references: model.references !== false,
+            negativePrompt: model.negative_prompt === true,
+        }));
+
+    if (models.length === 0) throw new Error('Naistera returned an empty model catalogue');
+
+    naisteraCatalog = new Map(models.map(model => [model.id, model]));
+    naisteraCatalogStatus = {
+        authenticated: payload?.authenticated === true,
+        tier: payload?.tier || null,
+        publicFallback,
+        loadedAt: Date.now(),
+    };
+    iigLog('INFO', `Naistera models loaded: ${models.length}; authenticated=${naisteraCatalogStatus.authenticated}; tier=${naisteraCatalogStatus.tier || 'public'}`);
+    return models.map(model => model.id);
+}
+
+/**
+ * Pull the catalogue when Naistera is active. Safe to call repeatedly: it skips
+ * when the provider is something else, when there is no key, or when a load for
+ * the same endpoint+key pair already succeeded.
+ */
+let _naisteraCatalogKey = '';
+async function loadNaisteraCatalogIfNeeded(force = false) {
+    const settings = getSettings();
+    if (settings.apiType !== 'naistera' || !settings.apiKey) return;
+
+    const key = `${getEffectiveEndpoint(settings) || ''}|${settings.apiKey}`;
+    if (!force && key === _naisteraCatalogKey && naisteraCatalog.size > 0) return;
+
+    try {
+        await fetchNaisteraModels(settings);
+        _naisteraCatalogKey = key;
+        refreshNaisteraModelSelect();
+        updateVisibility();
+    } catch (error) {
+        // Silent on purpose: the fallback list keeps the UI usable, and the
+        // refresh button reports failures loudly when the user asks for them.
+        iigLog('WARN', `Naistera catalogue load failed: ${error.message}`);
+    }
+}
+
+function refreshNaisteraModelSelect() {
+    const select = document.getElementById('iig_naistera_model');
+    if (!select) return;
+
+    const settings = getSettings();
+    const ids = getNaisteraModelIds();
+    // A saved model that the catalogue no longer lists would otherwise be sent
+    // to the API verbatim and fail; fall back to the first available one.
+    const current = ids.includes(settings.naisteraModel)
+        ? settings.naisteraModel
+        : normalizeNaisteraModel(settings.naisteraModel);
+
+    select.innerHTML = ids.map(id =>
+        `<option value="${sanitizeForHtml(id)}" ${current === id ? 'selected' : ''}>${sanitizeForHtml(naisteraModelDisplayLabel(id))}</option>`).join('');
+
+    if (current !== settings.naisteraModel) {
+        iigLog('WARN', `Saved Naistera model "${settings.naisteraModel}" is not in the catalogue; switched to "${current}"`);
+        settings.naisteraModel = current;
+        saveSettings();
+        toastr.info(`Модель переключена на ${naisteraModelDisplayLabel(current)}`, 'Naistera');
+    }
+}
+
 function normalizeNaisteraModel(model) {
     const raw = String(model || '').trim().toLowerCase();
     if (!raw) return 'grok';
@@ -950,12 +1066,22 @@ function normalizeNaisteraModel(model) {
     }
     if (raw === 'novel ai' || raw === 'novel-ai') return 'novelai';
     if (NAISTERA_MODELS.includes(raw)) return raw;
-    return 'grok';
+    // Anything the live catalogue knows about passes through untouched.
+    if (naisteraCatalog.has(raw)) return raw;
+    return naisteraCatalog.size > 0 ? ([...naisteraCatalog.keys()][0]) : 'grok';
 }
 
 function naisteraModelSupportsReferences(model) {
+    const entry = getNaisteraCatalogEntry(model);
+    if (entry) return entry.references === true;
+    // No catalogue: fall back to the previously hardcoded behaviour.
     const normalized = normalizeNaisteraModel(model);
     return normalized !== 'novelai' && normalized !== 'grok-pro';
+}
+
+// Only the server knows this one, so without a catalogue the field stays hidden.
+function naisteraModelSupportsNegativePrompt(model) {
+    return getNaisteraCatalogEntry(model)?.negativePrompt === true;
 }
 
 // Presets apply to the Grok family; nano banana 2 and novelai ignore them.
@@ -966,6 +1092,8 @@ function naisteraModelSupportsPreset(model) {
 
 // Wire values stay canonical (Naistera-accepted); labels get capitalized for UI.
 function naisteraModelDisplayLabel(canonical) {
+    const entry = naisteraCatalog.get(canonical);
+    if (entry?.name) return entry.name;
     switch (canonical) {
         case 'grok':          return 'Grok';
         case 'grok-pro':      return 'Grok Pro';
@@ -1125,6 +1253,7 @@ const PRESET_FIELDS = Object.freeze([
     'showAllModels',
     'naisteraModel',
     'naisteraSendRefs',
+    'naisteraNegativePrompt',
     'geminiSendRefs',
 ]);
 
@@ -9049,6 +9178,9 @@ async function generateImageNaistera(prompt, style, options = {}, settings = { .
         model,
     };
     if (preset) body.preset = preset;
+
+    const negativePrompt = String(settings.naisteraNegativePrompt || '').trim();
+    if (negativePrompt && naisteraModelSupportsNegativePrompt(model)) body.negative_prompt = negativePrompt;
     const useLegacyRefs = getProviderQuirks(settings).naisteraRefs === 'images';
     if (referenceObjects.length > 0) {
         if (useLegacyRefs) body.reference_images = referenceObjects.map(ref => ref.image);
@@ -9060,6 +9192,7 @@ async function generateImageNaistera(prompt, style, options = {}, settings = { .
         model: body.model,
         aspect_ratio: body.aspect_ratio,
         preset: body.preset ?? '(unset)',
+        negative_prompt_length: body.negative_prompt?.length ?? 0,
         prompt_length: body.prompt?.length ?? 0,
         references: referenceObjects.length,
         reference_format: referenceObjects.length > 0 ? (useLegacyRefs ? 'images' : 'objects') : '(unset)',
@@ -12391,8 +12524,13 @@ function createSettingsUI() {
                         <div class="flex-row ${settings.apiType === 'naistera' ? '' : 'iig-hidden'}" id="iig_naistera_model_row">
                             <label for="iig_naistera_model" data-i18n="iig_ui_model">Model</label>
                             <select id="iig_naistera_model" class="flex1">
-                                ${NAISTERA_MODELS.map(m => `<option value="${sanitizeForHtml(m)}" ${normalizeNaisteraModel(settings.naisteraModel) === m ? 'selected' : ''}>${sanitizeForHtml(naisteraModelDisplayLabel(m))}</option>`).join('')}
+                                ${getNaisteraModelIds().map(m => `<option value="${sanitizeForHtml(m)}" ${normalizeNaisteraModel(settings.naisteraModel) === m ? 'selected' : ''}>${sanitizeForHtml(naisteraModelDisplayLabel(m))}</option>`).join('')}
                             </select>
+                        </div>
+
+                        <div class="flex-row ${settings.apiType === 'naistera' && naisteraModelSupportsNegativePrompt(settings.naisteraModel) ? '' : 'iig-hidden'}" id="iig_naistera_negative_prompt_row">
+                            <label for="iig_naistera_negative_prompt">Негативный промпт</label>
+                            <textarea id="iig_naistera_negative_prompt" class="text_pole textarea_compact flex1" rows="2" placeholder="(пусто)">${sanitizeForHtml(settings.naisteraNegativePrompt || '')}</textarea>
                         </div>
 
                         <div class="flex-row ${settings.apiType === 'naistera' && naisteraModelSupportsPreset(settings.naisteraModel) ? '' : 'iig-hidden'}" id="iig_naistera_preset_row">
@@ -14244,6 +14382,8 @@ function bindSettingsEvents() {
         const presetAllowed = isNaistera && naisteraModelSupportsPreset(settings.naisteraModel);
         document.getElementById('iig_naistera_preset_row')?.classList.toggle('iig-hidden', !presetAllowed);
         document.getElementById('iig_naistera_preset_hint')?.classList.toggle('iig-hidden', !presetAllowed);
+        const negativeAllowed = isNaistera && naisteraModelSupportsNegativePrompt(settings.naisteraModel);
+        document.getElementById('iig_naistera_negative_prompt_row')?.classList.toggle('iig-hidden', !negativeAllowed);
         const refsAllowed = isNaistera && naisteraModelSupportsReferences(settings.naisteraModel);
         document.getElementById('iig_naistera_refs_row')?.classList.toggle('iig-hidden', !refsAllowed);
         document.getElementById('iig_naistera_refs_hint')?.classList.toggle('iig-hidden', !refsAllowed);
@@ -14586,6 +14726,16 @@ function bindSettingsEvents() {
         btn.classList.add('loading');
         
         try {
+            if (captured.apiType === 'naistera') {
+                const ids = await fetchNaisteraModels(captured);
+                if (!isCurrent()) return;
+                refreshNaisteraModelSelect();
+                updateVisibility();
+                const tier = naisteraCatalogStatus.tier ? ` (тариф: ${naisteraCatalogStatus.tier})` : '';
+                toastr.success(`Найдено моделей: ${ids.length}${tier}`, 'Naistera');
+                return;
+            }
+
             const models = await fetchModels(captured);
             if (!isCurrent()) return;
             updateModelCatalog('iig_model', models, models.length > 0);
@@ -14618,6 +14768,14 @@ function bindSettingsEvents() {
     bindIig(document.getElementById('iig_naistera_model'), 'change', (e) => {
         settings.naisteraModel = normalizeNaisteraModel(e.target.value);
         updateVisibility(); // preset and ref rows depend on model capabilities.
+        saveSettings();
+    });
+
+    bindIig(document.getElementById('iig_api_key'), 'change', () => loadNaisteraCatalogIfNeeded(true));
+    bindIig(document.getElementById('iig_endpoint'), 'change', () => loadNaisteraCatalogIfNeeded(true));
+
+    bindIig(document.getElementById('iig_naistera_negative_prompt'), 'input', (e) => {
+        settings.naisteraNegativePrompt = e.target.value;
         saveSettings();
     });
 
@@ -14729,6 +14887,7 @@ function bindSettingsEvents() {
         setVal('iig_model', settings.model);
         setVal('iig_path_override', settings.pathOverride);
         setVal('iig_naistera_model', settings.naisteraModel);
+        setVal('iig_naistera_negative_prompt', settings.naisteraNegativePrompt);
         const showAll = document.getElementById('iig_show_all_models');
         if (showAll) showAll.checked = !!settings.showAllModels;
         const sendRefs = document.getElementById('iig_naistera_send_refs');
@@ -15278,6 +15437,7 @@ function cleanupIig() {
         // One-shot base64 migration, fire-and-forget.
         trackIigTask(migrateBase64Refs()).catch(e => iigLog('ERROR', `migrateBase64Refs crashed: ${e.message}`));
 
+        loadNaisteraCatalogIfNeeded();
         registerIigLocale();
         listenIig(document, 'click', _closeModelPickersOnDocumentClick);
         createSettingsUI();
