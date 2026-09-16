@@ -4152,6 +4152,7 @@ function getStylePreview(value) {
 }
 
 // ── Style library: modal + floating button ──
+let currentStyleFilter = 'all';
 function openStyleModal() {
     if (document.getElementById('iig-style-modal-overlay')) return;
     const ov = document.createElement('div');
@@ -11637,6 +11638,39 @@ function createSettingsUI() {
                         <div id="iig_open_style_library" class="menu_button" style="width:100%;">
                             <i class="fa-solid fa-palette"></i> Библиотека стилей
                         </div>
+
+					<!-- Wardrobe -->
+<details class="iig-section iig-accordion">
+    <summary><h4><i class="fa-solid fa-shirt"></i> Гардероб</h4></summary>
+    <p class="hint" id="slay_wardrobe_hint">Загрузите аутфиты для бота и юзера. Изображение активного аутфита отправится как референс, а словесное описание будет добавлено в промпт.</p>
+    <div class="flex-row"><div id="slay_sw_open_wardrobe" class="menu_button" style="width:100%;"><i class="fa-solid fa-shirt"></i> Открыть гардероб</div></div>
+    <label class="checkbox_label" style="margin-top:8px;"><input type="checkbox" id="slay_sw_auto_describe"><span>Авто-описание аутфитов через ИИ</span></label>
+    
+    <div id="slay_sw_describe_prompt_section" style="margin-top:6px;">
+        <div class="flex-row"><label>Стиль описания</label><select id="slay_sw_describe_prompt_style" class="flex1"><option value="detailed">Детальный (costume designer)</option><option value="simple">Простой (краткий)</option></select></div>
+    </div>
+
+    <div id="slay_sw_describe_api_section" style="margin-top:8px;padding:12px;border-radius:10px;background:rgba(244,114,182,0.04);border:1px solid rgba(244,114,182,0.1);">
+        <div class="flex-row"><label>Способ</label><select id="slay_sw_describe_mode" class="flex1"><option value="direct">Прямой API</option><option value="chat">Через чат-API</option></select></div>
+        <div id="slay_sw_direct_api_section">
+            <div class="flex-row" style="margin-top:6px;"><label>Формат API</label><select id="slay_sw_describe_api_format" class="flex1"><option value="auto">Авто (по имени модели)</option><option value="gemini">Gemini</option><option value="openai">OpenAI-compatible</option></select></div>
+            <div class="flex-row" style="margin-top:6px;"><label>Endpoint</label><input type="text" id="slay_sw_describe_endpoint" class="text_pole flex1" placeholder="Из основных настроек"></div>
+            <div class="flex-row" style="margin-top:6px;"><label>Ключ API</label><input type="password" id="slay_sw_describe_key" class="text_pole flex1" placeholder="Из основных настроек"><div id="slay_sw_describe_key_toggle" class="menu_button iig-key-toggle" title="Показать или скрыть"><i class="fa-solid fa-eye"></i></div></div>
+            <div class="flex-row" style="margin-top:6px;"><label>Модель</label><input type="text" id="slay_sw_describe_model" class="text_pole flex1" list="slay_sw_describe_model_list" autocomplete="off" spellcheck="false"><datalist id="slay_sw_describe_model_list"></datalist><div id="slay_sw_describe_refresh" class="menu_button iig-refresh-btn" title="Обновить список"><i class="fa-solid fa-sync"></i></div></div>
+            <div id="slay_sw_describe_test" class="menu_button iig-test-connection" style="margin-top:8px;"><i class="fa-solid fa-wifi"></i> Тест</div>
+        </div>
+    </div>
+
+    <p class="hint" style="margin-top:10px;font-weight:600;color:var(--slay-pink,#f472b6);">Настройки гардероба:</p>
+    <label class="checkbox_label" style="margin-top:4px;"><input type="checkbox" id="slay_sw_send_outfit_desc"><span>Отправлять текстовое описание аутфита</span></label>
+    <label class="checkbox_label" style="margin-top:4px;"><input type="checkbox" id="slay_sw_send_outfit_image_bot"><span>Отправлять картинку одежды бота</span></label>
+    <label class="checkbox_label" style="margin-top:4px;"><input type="checkbox" id="slay_sw_send_outfit_image_user"><span>Отправлять картинку одежды юзера</span></label>
+    <label class="checkbox_label" style="margin-top:4px;"><input type="checkbox" id="slay_sw_collage"><span>ЭКСПЕРИМЕНТАЛЬНО: склеивать в коллаж</span></label>
+    <label class="checkbox_label" style="margin-top:8px;"><input type="checkbox" id="slay_sw_skip_desc_warn"><span>Не спрашивать про описание при надевании</span></label>
+    <label class="checkbox_label" style="margin-top:4px;"><input type="checkbox" id="slay_sw_show_float"><span>Плавающая кнопка в чате</span></label>
+    <div class="flex-row" style="margin-top:6px;"><label>Макс. размер (px)</label><input type="number" id="slay_sw_max_dim" class="text_pole flex1" min="128" max="1024" step="64"></div>
+    <div class="flex-row" style="margin-top:6px;"><label>Размер гардероба (ПК)</label><select id="slay_sw_modal_width" class="flex1"><option value="compact">Компактный (480px)</option><option value="normal">Обычный (560px)</option><option value="wide">Широкий (800px)</option><option value="xwide">Очень широкий (1100px)</option><option value="full">Во весь экран</option></select></div>
+</details>
                         </div>
 
                         <!-- Advanced: escape hatches for non-standard providers. -->
@@ -14391,6 +14425,123 @@ function bindSettingsEvents() {
 
     // Naistera has no remote model catalog; probe its generation endpoint instead.
     bindIig(document.getElementById('iig_open_style_library'), 'click', () => openStyleModal());
+
+// --- WARDROBE INIT & HANDLERS ---
+    const swSettings = SillyTavern.getContext().extensionSettings.slay_wardrobe || {};
+    
+    const swSetChecked = (id, val, def = false) => { const el = document.getElementById(id); if (el) el.checked = val !== undefined ? val : def; };
+    const swSetVal = (id, val, def = '') => { const el = document.getElementById(id); if (el) el.value = val !== undefined ? val : def; };
+
+    swSetChecked('slay_sw_auto_describe', swSettings.autoDescribe, true);
+    swSetVal('slay_sw_describe_prompt_style', swSettings.describePromptStyle, 'detailed');
+    swSetVal('slay_sw_describe_mode', swSettings.describeMode, 'direct');
+    swSetVal('slay_sw_describe_api_format', swSettings.describeApiFormat, 'auto');
+    swSetVal('slay_sw_describe_endpoint', swSettings.describeEndpoint);
+    swSetVal('slay_sw_describe_key', swSettings.describeKey);
+    swSetVal('slay_sw_describe_model', swSettings.describeModel, 'gemini-2.5-flash');
+    swSetChecked('slay_sw_send_outfit_desc', swSettings.sendOutfitDescription, true);
+    swSetChecked('slay_sw_send_outfit_image_bot', swSettings.sendOutfitImageBot, true);
+    swSetChecked('slay_sw_send_outfit_image_user', swSettings.sendOutfitImageUser, true);
+    swSetChecked('slay_sw_collage', swSettings.experimentalCollage, false);
+    swSetChecked('slay_sw_skip_desc_warn', swSettings.skipDescriptionWarning, false);
+    swSetChecked('slay_sw_show_float', swSettings.showFloatingBtn, false);
+    swSetVal('slay_sw_max_dim', swSettings.maxDimension, 512);
+    swSetVal('slay_sw_modal_width', swSettings.modalWidth, 'normal');
+
+    document.getElementById('slay_sw_describe_api_section')?.classList.toggle('iig-hidden', swSettings.autoDescribe === false);
+    document.getElementById('slay_sw_describe_prompt_section')?.classList.toggle('iig-hidden', swSettings.autoDescribe === false);
+    document.getElementById('slay_sw_direct_api_section')?.classList.toggle('iig-hidden', swSettings.describeMode === 'chat');
+
+    document.getElementById('slay_sw_open_wardrobe')?.addEventListener('click', () => {
+        if (window.slayWardrobe?.isReady()) window.slayWardrobe.openModal();
+        else toastr.error('Гардероб не загружен', 'Гардероб');
+    });
+
+    ['auto_describe', 'send_outfit_desc', 'send_outfit_image_bot', 'send_outfit_image_user', 'collage', 'skip_desc_warn', 'show_float'].forEach(key => {
+        document.getElementById(`slay_sw_${key}`)?.addEventListener('change', (e) => {
+            const s = SillyTavern.getContext().extensionSettings.slay_wardrobe;
+            const mappedKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+            const finalKey = mappedKey === 'autoDescribe' ? 'autoDescribe' : mappedKey === 'collage' ? 'experimentalCollage' : mappedKey;
+            if (s) { s[finalKey] = e.target.checked; SillyTavern.getContext().saveSettingsDebounced(); }
+            if (key === 'auto_describe') {
+                document.getElementById('slay_sw_describe_api_section')?.classList.toggle('iig-hidden', !e.target.checked);
+                document.getElementById('slay_sw_describe_prompt_section')?.classList.toggle('iig-hidden', !e.target.checked);
+            }
+            if (key === 'show_float') $('#sw-bar-btn').toggle(e.target.checked);
+        });
+    });
+
+    ['describe_prompt_style', 'describe_mode', 'describe_api_format', 'describe_endpoint', 'describe_model', 'max_dim', 'modal_width'].forEach(key => {
+        document.getElementById(`slay_sw_${key}`)?.addEventListener(key.includes('endpoint') || key.includes('model') ? 'input' : 'change', (e) => {
+            const s = SillyTavern.getContext().extensionSettings.slay_wardrobe;
+            let val = e.target.value;
+            if (key === 'max_dim') val = Math.max(128, Math.min(1024, parseInt(val) || 512));
+            if (key === 'describe_endpoint' || key === 'describe_model') val = val.trim();
+            const mappedKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+            const finalKey = mappedKey === 'maxDim' ? 'maxDimension' : mappedKey;
+            if (s) { s[finalKey] = val; SillyTavern.getContext().saveSettingsDebounced(); }
+            if (key === 'describe_mode') document.getElementById('slay_sw_direct_api_section')?.classList.toggle('iig-hidden', val !== 'direct');
+            if (key === 'modal_width') window.slayWardrobe?.applyModalWidth?.();
+        });
+    });
+
+    document.getElementById('slay_sw_describe_key')?.addEventListener('input', (e) => {
+        const s = SillyTavern.getContext().extensionSettings.slay_wardrobe;
+        if (s) { s.describeKey = String(e.target.value || '').replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '').trim(); SillyTavern.getContext().saveSettingsDebounced(); }
+    });
+    
+    document.getElementById('slay_sw_describe_key_toggle')?.addEventListener('click', () => {
+        const input = document.getElementById('slay_sw_describe_key'); const icon = document.querySelector('#slay_sw_describe_key_toggle i');
+        if (input.type === 'password') { input.type = 'text'; icon.classList.replace('fa-eye', 'fa-eye-slash'); } 
+        else { input.type = 'password'; icon.classList.replace('fa-eye-slash', 'fa-eye'); }
+    });
+    // --- END WARDROBE HANDLERS ---
+	
+	document.getElementById('slay_sw_describe_refresh')?.addEventListener('click', async (e) => {
+        const btn = e.currentTarget; btn.classList.add('loading');
+        try {
+            const swS = SillyTavern.getContext().extensionSettings.slay_wardrobe || {};
+            const ep = swS.describeEndpoint || getSettings().endpoint || '';
+            const key = swS.describeKey || getSettings().apiKey || '';
+            if (!ep || !key) throw new Error('Укажите endpoint и API key');
+            
+            const url = `${ep.replace(/\/+$/, '').replace(/\/v1(beta)?$/i, '')}/v1/models`;
+            const resp = await fetch(url, { method: 'GET', headers: { 'Authorization': `Bearer ${key}` } });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            
+            const models = (data.data || []).map(m => m.id).sort();
+            const dl = document.getElementById('slay_sw_describe_model_list');
+            if (dl) { 
+                dl.innerHTML = ''; 
+                models.forEach(m => { const o = document.createElement('option'); o.value = m; dl.appendChild(o); }); 
+            }
+            toastr.success(`Найдено моделей: ${models.length}`, 'Гардероб');
+        } catch (error) { toastr.error(`Ошибка: ${error.message}`, 'Гардероб'); }
+        finally { btn.classList.remove('loading'); }
+    });
+
+    document.getElementById('slay_sw_describe_test')?.addEventListener('click', async (e) => {
+        const btn = e.currentTarget; if (btn.classList.contains('testing')) return;
+        btn.classList.add('testing'); const icon = btn.querySelector('i'); const orig = icon.className; icon.className = 'fa-solid fa-spinner iig-spin-anim';
+        try {
+            const swS = SillyTavern.getContext().extensionSettings.slay_wardrobe || {};
+            const ep = swS.describeEndpoint || getSettings().endpoint || '';
+            const key = swS.describeKey || getSettings().apiKey || '';
+            if (!ep || !key) throw new Error('Укажите endpoint и API key');
+
+            const url = `${ep.replace(/\/+$/, '').replace(/\/v1(beta)?$/i, '')}/v1/models`;
+            const resp = await fetch(url, { method: 'GET', headers: { 'Authorization': `Bearer ${key}` } });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            
+            toastr.success(`Connection OK — ${(data.data || []).length} моделей доступно`, 'Гардероб');
+            btn.classList.add('test-success'); setTimeout(() => btn.classList.remove('test-success'), 700);
+        } catch (error) {
+            toastr.error(`Ошибка: ${error.message}`, 'Гардероб');
+            btn.classList.add('test-fail'); setTimeout(() => btn.classList.remove('test-fail'), 700);
+        } finally { btn.classList.remove('testing'); icon.className = orig; }
+    });
 
     bindIig(document.getElementById('iig_test_connection'), 'click', async (e) => {
         const btn = e.currentTarget;
