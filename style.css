@@ -4804,3 +4804,17 @@ body.iig-low-power [class*="iig-"]::after {
     border-color: color-mix(in srgb, var(--slay-pink) 35%, transparent);
     transform: translateY(-1px);
 }
+
+/* ---- Style library: export / import row ---- */
+.iig-style-backup-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.iig-style-backup-row .menu_button {
+    width: 100%;
+    margin: 0;
+    font-size: 0.85em;
+}

@@ -4157,6 +4157,117 @@ function getStylePreview(value) {
 
 // ── Style library: modal + floating button ──
 let currentStyleFilter = 'all';
+
+// =========================================================================
+// Style export / import
+//
+// Deliberately carries only name + text. Images, tags and favourites are
+// cheap to redo; the prompt text is what took months to collect. Keeping the
+// file to two fields also means it stays readable in a text editor, so the
+// styles are recoverable by hand even if this code breaks.
+// =========================================================================
+
+const STYLES_BACKUP_SPEC = 'frameweaver_styles';
+const STYLES_BACKUP_VERSION = 1;
+
+function exportStylesToFile() {
+    const styles = ensureStyles(getSettings());
+    if (styles.length === 0) {
+        toastr.info('Библиотека пуста — нечего выгружать', 'Стили');
+        return;
+    }
+
+    const payload = {
+        spec: STYLES_BACKUP_SPEC,
+        version: STYLES_BACKUP_VERSION,
+        exportedAt: new Date().toISOString(),
+        styles: styles.map(style => ({
+            name: String(style.name || ''),
+            value: String(style.value || ''),
+        })),
+    };
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `frameweaver-styles-${stamp}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    // Revoking immediately can cancel the download on some browsers.
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+    toastr.success(`Выгружено стилей: ${styles.length}`, 'Стили');
+}
+
+function parseStylesBackup(text) {
+    let parsed;
+    try {
+        parsed = JSON.parse(text);
+    } catch {
+        throw new Error('Файл не читается как JSON');
+    }
+    if (!parsed || parsed.spec !== STYLES_BACKUP_SPEC) {
+        throw new Error('Это не файл стилей Frameweaver');
+    }
+    if (!Array.isArray(parsed.styles)) {
+        throw new Error('В файле нет списка стилей');
+    }
+
+    // Last one wins on duplicate names inside the file itself.
+    const byName = new Map();
+    for (const entry of parsed.styles) {
+        const name = String(entry?.name || '').trim();
+        if (!name) continue;
+        byName.set(name, String(entry?.value || ''));
+    }
+    return [...byName].map(([name, value]) => ({ name, value }));
+}
+
+async function importStylesFromFile(file) {
+    let incoming;
+    try {
+        incoming = parseStylesBackup(await file.text());
+    } catch (error) {
+        toastr.error(error.message, 'Импорт стилей');
+        return;
+    }
+
+    if (incoming.length === 0) {
+        toastr.info('В файле нет ни одного стиля с названием', 'Импорт стилей');
+        return;
+    }
+
+    const settings = getSettings();
+    const existing = ensureStyles(settings);
+    const existingByName = new Map(existing.map(style => [String(style.name || '').trim(), style]));
+    const updates = incoming.filter(entry => existingByName.has(entry.name)).length;
+    const additions = incoming.length - updates;
+
+    const confirmed = await slayConfirm(
+        `Найдено стилей: ${incoming.length}. Новых: ${additions}, обновит текст у существующих: ${updates}. `
+        + 'Картинки, теги и избранное у существующих стилей не тронутся. Продолжить?');
+    if (!confirmed) return;
+
+    for (const entry of incoming) {
+        const match = existingByName.get(entry.name);
+        if (match) {
+            // Text only: everything else belongs to the local copy.
+            match.value = entry.value;
+        } else {
+            const created = createStyle(entry.name);
+            created.value = entry.value;
+        }
+    }
+
+    saveSettings();
+    renderStyleModal();
+    updateStyleFloatingBtn();
+    toastr.success(`Добавлено: ${additions}, обновлено: ${updates}`, 'Импорт стилей');
+}
+
 function openStyleModal() {
     if (document.getElementById('iig-style-modal-overlay')) return;
     const ov = document.createElement('div');
@@ -4175,6 +4286,11 @@ function openStyleModal() {
                     <div class="iig-style-list-container" id="iig_style_modal_list"></div>
                     <div style="padding: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
                         <button id="iig_style_modal_add" class="menu_button" style="width:100%;"><i class="fa-solid fa-plus"></i> Новый стиль</button>
+                        <div class="iig-style-backup-row">
+                            <button id="iig_style_export" class="menu_button" title="Выгрузить все стили в JSON"><i class="fa-solid fa-download"></i> Экспорт</button>
+                            <button id="iig_style_import" class="menu_button" title="Загрузить стили из JSON"><i class="fa-solid fa-upload"></i> Импорт</button>
+                            <input type="file" id="iig_style_import_file" accept="application/json,.json" hidden>
+                        </div>
                     </div>
                 </div>
                 <div class="iig-style-editor-area" id="iig_style_modal_editor"></div>
@@ -4190,6 +4306,17 @@ function openStyleModal() {
             renderStyleModal();
         }
     });
+    document.getElementById('iig_style_export')?.addEventListener('click', exportStylesToFile);
+
+    const importInput = document.getElementById('iig_style_import_file');
+    document.getElementById('iig_style_import')?.addEventListener('click', () => importInput?.click());
+    importInput?.addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        // Reset first: picking the same file twice must still fire a change event.
+        e.target.value = '';
+        if (file) await importStylesFromFile(file);
+    });
+
     document.getElementById('iig_style_modal_add').addEventListener('click', async () => {
         const name = await slayPromptInput('Новое название:', 'Мой стиль');
         if (name && name.trim()) {
