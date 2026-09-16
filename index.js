@@ -788,6 +788,8 @@ const defaultSettings = Object.freeze({
     // Style library (ported): saved styles and the globally active one.
     styles: [],
     activeStyleId: '',
+    // Recently used reference paths (ported), newest first.
+    recentRefs: [],
     apiType: 'openai',              // 'openai' | 'gemini' | 'naistera'
     endpoint: '',
     apiKey: '',
@@ -11146,6 +11148,257 @@ function buildNpcSlotHtml(i) {
             </div>`;
 }
 
+
+// =========================================================================
+// PORTED: recent references ribbon
+//
+// Keeps the last few uploaded reference paths as a strip under the slots.
+// Click a thumbnail to pick a target slot, or drag it onto one.
+// =========================================================================
+
+const RECENT_REFS_MAX = 10;
+
+function pushRecentRef(path) {
+    if (!path) return;
+    const settings = getSettings();
+    if (!Array.isArray(settings.recentRefs)) settings.recentRefs = [];
+    settings.recentRefs = settings.recentRefs.filter(r => (typeof r === 'string' ? r : r.path) !== path);
+    settings.recentRefs.unshift({ path, lastUsed: Date.now() });
+    if (settings.recentRefs.length > RECENT_REFS_MAX) settings.recentRefs.length = RECENT_REFS_MAX;
+    saveSettings();
+    try { renderRecentRefsRibbon(); } catch (_) { /* not mounted yet */ }
+}
+
+function getRecentRefs() {
+    const settings = getSettings();
+    const list = Array.isArray(settings.recentRefs) ? settings.recentRefs : [];
+    return list.map(r => typeof r === 'string' ? { path: r, lastUsed: 0 } : r).filter(r => r.path);
+}
+
+function removeRecentRef(path) {
+    const settings = getSettings();
+    if (!Array.isArray(settings.recentRefs)) return;
+    settings.recentRefs = settings.recentRefs.filter(r => (typeof r === 'string' ? r : r.path) !== path);
+    saveSettings();
+    try { renderRecentRefsRibbon(); } catch (_) {}
+}
+
+function findAllSlotsByKey(key) {
+    if (!key) return [];
+    if (key === 'char' || key === 'user') {
+        return [...document.querySelectorAll(`.iig-ref-slot[data-ref-type="${key}"]`)];
+    }
+    const m = key.match(/^npc-(\d+)$/);
+    if (!m) return [];
+    return [...document.querySelectorAll(`.iig-ref-slot[data-ref-type="npc"][data-npc-index="${m[1]}"]`)];
+}
+
+function closeAllRefPopups() {
+    document.getElementById('iig_assign_popup')?.classList.remove('show');
+}
+
+function clampPopupToViewport(popup) {
+    if (!popup || !popup.classList.contains('show')) return;
+    const rect = popup.getBoundingClientRect();
+    const margin = 8;
+    let left = rect.left, top = rect.top;
+    if (rect.right > innerWidth - margin) left -= (rect.right - innerWidth + margin);
+    if (rect.left < margin) left = margin;
+    if (rect.bottom > innerHeight - margin) top -= (rect.bottom - innerHeight + margin);
+    if (rect.top < margin) top = margin;
+    popup.style.left = Math.max(margin, left) + 'px';
+    popup.style.top = Math.max(margin, top) + 'px';
+}
+
+function armPopupContainment(popup) {
+    // Clicks inside the popup must not bubble to the document-level
+    // "clicked outside" handler below (that handler is what closes it).
+    if (popup.dataset.iigContained === '1') return;
+    popup.dataset.iigContained = '1';
+    popup.addEventListener('click', (e) => e.stopPropagation());
+    popup.addEventListener('pointerdown', (e) => e.stopPropagation());
+    if (!_iigPopupAutoDismissArmed) {
+        _iigPopupAutoDismissArmed = true;
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('#iig_assign_popup, .iig-recent-thumb')) closeAllRefPopups();
+        });
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAllRefPopups(); });
+        // Popups are position:fixed and anchored to a thumb's on-screen rect —
+        // scroll/resize detaches them from what they point at, so dismiss
+        // instead of trying to re-anchor.
+        window.addEventListener('scroll', () => closeAllRefPopups(), { capture: true, passive: true });
+        window.addEventListener('resize', () => closeAllRefPopups(), { passive: true });
+    }
+}
+
+function showAssignPopup(anchor, path) {
+    const popup = document.getElementById('iig_assign_popup');
+    if (!popup) return;
+    if (popup.classList.contains('show') && popup.dataset.path === path) {
+        popup.classList.remove('show');
+        return;
+    }
+    if (popup.parentElement !== document.body) document.body.appendChild(popup);
+    armPopupContainment(popup);
+
+    const slotButtons = [];
+    slotButtons.push(`<button class="iig-assign-btn" data-key="char">{{char}}</button>`);
+    slotButtons.push(`<button class="iig-assign-btn" data-key="user">{{user}}</button>`);
+    const seenNpc = new Set();
+    document.querySelectorAll('.iig-ref-slot[data-ref-type="npc"]').forEach((slot, i) => {
+        const idx = String(slot.dataset.npcIndex ?? i);
+        if (seenNpc.has(idx)) return;
+        seenNpc.add(idx);
+        slotButtons.push(`<button class="iig-assign-btn" data-key="npc-${idx}">NPC ${Number(idx) + 1}</button>`);
+    });
+    popup.innerHTML = `
+        <button class="iig-popup-close" type="button" title="Закрыть" aria-label="Закрыть"><i class="fa-solid fa-xmark"></i></button>
+        <div class="iig-assign-title">Куда применить?</div>
+        <div class="iig-assign-preview"><img src="${String(path).replace(/"/g, '&quot;')}" alt=""></div>
+        <div class="iig-assign-buttons">${slotButtons.join('')}</div>
+    `;
+    popup.querySelector('.iig-popup-close')?.addEventListener('click', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        closeAllRefPopups();
+    });
+    const rect = anchor.getBoundingClientRect();
+    popup.style.left = rect.left + 'px';
+    popup.style.top = (rect.bottom + 6) + 'px';
+    popup.classList.add('show');
+    popup.dataset.path = path;
+    requestAnimationFrame(() => clampPopupToViewport(popup));
+
+    for (const btn of popup.querySelectorAll('.iig-assign-btn')) {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            const key = btn.dataset.key;
+            const slots = findAllSlotsByKey(key);
+            if (!slots.length) { closeAllRefPopups(); return; }
+            const refType = slots[0].dataset.refType;
+            const npcIndex = parseInt(slots[0].dataset.npcIndex, 10);
+            for (const sl of slots) applyPathToSlot(sl, refType, npcIndex, path);
+            const slot = slots[slots.length - 1];
+            pushRecentRef(path);
+            slot.classList.add('iig-slot-flash');
+            setTimeout(() => slot.classList.remove('iig-slot-flash'), 600);
+            closeAllRefPopups();
+            toastr.success('Реф применён', 'Image Generation', { timeOut: 1500 });
+        });
+    }
+}
+
+function renderRecentRefsRibbon() {
+    const host = document.getElementById('iig_recent_refs_ribbon');
+    if (!host) return;
+    const items = getRecentRefs();
+    if (items.length === 0) {
+        host.innerHTML = '';
+        host.classList.remove('has-items');
+        return;
+    }
+    host.classList.add('has-items');
+    let html = `<div class="iig-recent-refs-head">
+        <span class="iig-recent-refs-title"><i class="fa-solid fa-clock-rotate-left"></i> Недавние</span>
+        <span class="iig-recent-refs-hint">Tap → куда применить • drag на слот</span>
+    </div>
+    <div class="iig-recent-refs-track">`;
+    for (const item of items) {
+        const safeSrc = String(item.path).replace(/"/g, '&quot;');
+        html += `<div class="iig-recent-thumb" draggable="true" data-path="${safeSrc}" title="${safeSrc}">
+            <img src="${safeSrc}" alt="" loading="lazy">
+            <button class="iig-recent-remove" title="Убрать из недавних" data-path="${safeSrc}">×</button>
+        </div>`;
+    }
+    html += '</div>';
+    host.innerHTML = html;
+    bindRecentRefsEvents(host);
+}
+
+function bindRecentRefsEvents(host) {
+    for (const thumb of host.querySelectorAll('.iig-recent-thumb')) {
+        const path = thumb.dataset.path;
+        thumb.addEventListener('click', (e) => {
+            if (e.target.closest('.iig-recent-remove')) return;
+            e.stopPropagation();
+            showAssignPopup(e.currentTarget, path);
+        });
+        thumb.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('text/plain', path);
+            e.dataTransfer.effectAllowed = 'copy';
+            thumb.classList.add('dragging');
+            window._iigRecentDragPath = path;
+        });
+        thumb.addEventListener('dragend', () => {
+            thumb.classList.remove('dragging');
+            window._iigRecentDragPath = null;
+        });
+    }
+    for (const rm of host.querySelectorAll('.iig-recent-remove')) {
+        rm.addEventListener('click', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            removeRecentRef(rm.dataset.path);
+        });
+    }
+    // Drop targets = all ref slots (char/user/NPC alike).
+    for (const slot of document.querySelectorAll('.iig-ref-slot')) {
+        if (slot.dataset.iigDropBound === '1') continue;
+        slot.dataset.iigDropBound = '1';
+        slot.addEventListener('dragover', (e) => { e.preventDefault(); slot.classList.add('iig-slot-drop-hover'); });
+        slot.addEventListener('dragleave', () => slot.classList.remove('iig-slot-drop-hover'));
+        slot.addEventListener('drop', (e) => {
+            e.preventDefault();
+            slot.classList.remove('iig-slot-drop-hover');
+            const path = e.dataTransfer.getData('text/plain') || window._iigRecentDragPath;
+            if (!path) return;
+            const refType = slot.dataset.refType;
+            const npcIndex = parseInt(slot.dataset.npcIndex, 10);
+            applyPathToSlot(slot, refType, npcIndex, path);
+            pushRecentRef(path);
+            toastr.success('Реф применён', 'Image Generation', { timeOut: 1500 });
+        });
+    }
+}
+
+function applyPathToSlot(slotEl, refType, npcIndex, savedPath) {
+    const scopeHandle = getActiveRefScope({ forWrite: true });
+    const refs = scopeHandle.container;
+    let prevPath = '';
+
+    if (refType === 'char') {
+        prevPath = refs.charRef?.imagePath || '';
+        refs.charRef.imageBase64 = '';
+        refs.charRef.imagePath = savedPath;
+    } else if (refType === 'user') {
+        prevPath = refs.userRef?.imagePath || '';
+        refs.userRef.imageBase64 = '';
+        refs.userRef.imagePath = savedPath;
+    } else if (refType === 'npc') {
+        if (!refs.npcReferences[npcIndex]) refs.npcReferences[npcIndex] = { name: '', imageBase64: '', imagePath: '' };
+        prevPath = refs.npcReferences[npcIndex].imagePath || '';
+        refs.npcReferences[npcIndex].imageBase64 = '';
+        refs.npcReferences[npcIndex].imagePath = savedPath;
+    } else {
+        return;
+    }
+
+    const assignedRef = refType === 'npc' ? refs.npcReferences[npcIndex] : refs[`${refType}Ref`];
+    // The image no longer comes from a pack, so drop the association and its badge.
+    assignedRef.packAssetId = '';
+    if ('imageData' in assignedRef) assignedRef.imageData = '';
+    if (prevPath && prevPath !== savedPath) invalidateRefB64Cache(prevPath);
+    invalidateRefB64Cache(savedPath);
+    saveActiveRefs(scopeHandle);
+
+    if (slotEl) {
+        const thumb = slotEl.querySelector('.iig-ref-thumb');
+        if (thumb) thumb.src = savedPath;
+        const thumbWrap = slotEl.querySelector('.iig-ref-thumb-wrap');
+        if (thumbWrap) thumbWrap.classList.add('has-image');
+        clearPackedRefSlotAppearance(slotEl);
+    }
+    markRefStorageUsageStale();
+}
+
 function buildMainSlotsHtml() {
     // Stock char/user slot markup, reused verbatim so the ref-packs pill,
     // aria labels and i18n hooks survive the move out of the panel.
@@ -11219,6 +11472,9 @@ function buildRefsModalHtml() {
                         </div>
                     </div>
                 </div>
+
+                <div id="iig_recent_refs_ribbon" class="iig-recent-refs-ribbon"></div>
+                <div id="iig_assign_popup" class="iig-assign-popup"></div>
             </div>
         </div>`;
 }
@@ -11229,6 +11485,10 @@ function refsModalEsc(e) {
 
 function closeRefsModal() {
     document.getElementById('iig-refs-modal-overlay')?.remove();
+    // showAssignPopup reparents this to <body>; without explicit removal the
+    // orphans pile up one per window open.
+    closeAllRefPopups();
+    document.getElementById('iig_assign_popup')?.remove();
     document.removeEventListener('keydown', refsModalEsc);
 }
 
@@ -11243,6 +11503,7 @@ function openRefsModal() {
     // Rebind first, then paint: the renderer only fills slots that exist.
     bindRefSlotEvents();
     renderRefSlots();
+    renderRecentRefsRibbon();
 
     overlay.querySelector('#iig_refs_close')?.addEventListener('click', closeRefsModal);
     overlay.addEventListener('click', (e) => {
@@ -13606,6 +13867,7 @@ async function uploadRefFileToSlot(slot, refType, npcIndex, file, { crop = false
     const thumbWrap = slot.querySelector('.iig-ref-thumb-wrap');
     if (thumbWrap) thumbWrap.classList.add('has-image');
     markRefStorageUsageStale();
+    pushRecentRef(savedPath);
     return savedPath;
 }
 
