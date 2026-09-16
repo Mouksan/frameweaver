@@ -11156,7 +11156,9 @@ function buildNpcSlotHtml(i) {
 // Click a thumbnail to pick a target slot, or drag it onto one.
 // =========================================================================
 
-const RECENT_REFS_MAX = 10;
+// The ribbon track scrolls horizontally, so the cap is about how far back the
+// history stays useful, not about how many fit on screen.
+const RECENT_REFS_MAX = 30;
 
 function pushRecentRef(path) {
     if (!path) return;
