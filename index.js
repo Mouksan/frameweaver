@@ -4052,6 +4052,34 @@ function buildAuthHeaders(apiKey, extra = {}) {
     swLog('INFO', 'SlayWardrobe v4 initialized');
 })();
 
+// ── Style library: popup helpers (ST generic popup, window.* fallback) ──
+// --- Всплывающие окна для стилей ---
+async function slayPromptInput(title, defaultValue = '') {
+    const ctx = SillyTavern.getContext();
+    try {
+        if (typeof ctx.callGenericPopup === 'function') {
+            const INPUT = ctx.POPUP_TYPE?.INPUT ?? 3;
+            const res = await ctx.callGenericPopup(title, INPUT, String(defaultValue));
+            return (typeof res === 'string') ? res : null;
+        }
+    } catch (e) { console.warn('callGenericPopup failed:', e.message); }
+    const v = window.prompt(title, String(defaultValue));
+    return v === null ? null : v;
+}
+
+async function slayConfirm(text) {
+    const ctx = SillyTavern.getContext();
+    try {
+        if (typeof ctx.callGenericPopup === 'function') {
+            const CONFIRM = ctx.POPUP_TYPE?.CONFIRM ?? 2;
+            const res = await ctx.callGenericPopup(text, CONFIRM);
+            return res === true || res === 1;
+        }
+    } catch (e) { console.warn('callGenericPopup failed:', e.message); }
+    return window.confirm(text);
+}
+// --- КОНЕЦ Всплывающие окна ---
+
 // ── Style library: storage + helpers ──
 let selectedStyleId = '';
 let styleSearchQuery = '';
