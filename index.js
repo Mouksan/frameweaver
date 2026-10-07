@@ -805,8 +805,8 @@ const defaultSettings = Object.freeze({
     // User toggle for providers or models that reject references.
     geminiSendRefs: true,
     // Naistera
-    naisteraPreset: '',             // '' | 'digital' | 'realism' (Grok family)
-    naisteraModel: 'grok',          // 'grok' | 'grok-pro' | 'nano banana 2' | 'novelai'
+    naisteraPreset: '',             // '' | 'digital' | 'realism' (see PRESET_CAPABLE_MODELS)
+    naisteraModel: '',              // resolved against the live catalogue on load
     // User toggle to skip refs regardless of model capability.
     naisteraSendRefs: true,
     naisteraNegativePrompt: '',      // only sent to models that declare support
@@ -938,7 +938,7 @@ function resolveRoutMyNovelAiModel(modelId, aspectRatio) {
 }
 
 // Naistera upstreams via /api/generate.
-const NAISTERA_MODELS = Object.freeze(['grok', 'grok-pro', 'nano banana 2', 'novelai']);
+const NAISTERA_MODELS = Object.freeze(['nano banana 2', 'novelai']);
 
 // Naistera serves its model list per API token, so the catalogue is fetched
 // rather than hardcoded. NAISTERA_MODELS above stays as the offline fallback:
@@ -1040,25 +1040,66 @@ function refreshNaisteraModelSelect() {
     const ids = getNaisteraModelIds();
     // A saved model that the catalogue no longer lists would otherwise be sent
     // to the API verbatim and fail; fall back to the first available one.
-    const current = ids.includes(settings.naisteraModel)
+    let current = ids.includes(settings.naisteraModel)
         ? settings.naisteraModel
         : normalizeNaisteraModel(settings.naisteraModel);
+    // Normalization can still land outside the list (no catalogue loaded, or a
+    // built-in name with no counterpart). Without this the <option> list has no
+    // match, the browser silently shows the first entry, and the setting keeps
+    // its stale value — the UI and the request then disagree.
+    if (!ids.includes(current)) current = ids[0];
 
     select.innerHTML = ids.map(id =>
         `<option value="${sanitizeForHtml(id)}" ${current === id ? 'selected' : ''}>${sanitizeForHtml(naisteraModelDisplayLabel(id))}</option>`).join('');
+    select.value = current;
 
     if (current !== settings.naisteraModel) {
         iigLog('WARN', `Saved Naistera model "${settings.naisteraModel}" is not in the catalogue; switched to "${current}"`);
+        const previous = settings.naisteraModel;
         settings.naisteraModel = current;
         saveSettings();
-        toastr.info(`Модель переключена на ${naisteraModelDisplayLabel(current)}`, 'Naistera');
+        // Silent on first run: with nothing saved yet there is no switch to report.
+        if (previous) {
+            toastr.info(
+                sanitizeForHtml(iigT('iig_modelSwitched', { model: naisteraModelDisplayLabel(current) })),
+                'Naistera', { timeOut: 5000, escapeHtml: false });
+        }
     }
 }
 
+// Spaces, dashes and case are the only things that differ between the names we
+// used to hardcode and the ids Naistera actually serves ("nano banana 2" vs
+// "nano-banana-2"), so matching on the squashed form reconciles the two.
+function squashModelId(value) {
+    return String(value || '').toLowerCase().replace(/[\s_-]+/g, '');
+}
+
+/**
+ * Resolve a stored model name to an id the server will accept.
+ *
+ * The live catalogue wins over every built-in name. It used to be the other way
+ * round, and that quietly broke things twice: a stored "grok" stayed "valid"
+ * after Naistera dropped it, and a real id like "nano-banana-2" was rewritten
+ * into the legacy "nano banana 2", which the server does not know. The built-in
+ * list is now only a fallback for when the catalogue could not be loaded.
+ */
 function normalizeNaisteraModel(model) {
     const raw = String(model || '').trim().toLowerCase();
-    if (!raw) return 'grok';
-    if (raw === 'grok pro' || raw === 'grok-imagine-pro' || raw === 'imagine-pro') return 'grok-pro';
+
+    if (naisteraCatalog.size > 0) {
+        if (raw && naisteraCatalog.has(raw)) return raw;
+        if (raw) {
+            const squashed = squashModelId(raw);
+            for (const id of naisteraCatalog.keys()) {
+                if (squashModelId(id) === squashed) return id;
+            }
+        }
+        // Not on offer any more (or never was): fall back to the first listed.
+        return [...naisteraCatalog.keys()][0];
+    }
+
+    // No catalogue — offline behaviour on the built-in names.
+    if (!raw) return NAISTERA_MODELS[0];
     if (raw === 'nano-banana' || raw === 'nano banana'
         || raw === 'nano-banana-pro' || raw === 'nano banana pro'
         || raw === 'nano-banana-2' || raw === 'nano banana 2') {
@@ -1066,17 +1107,14 @@ function normalizeNaisteraModel(model) {
     }
     if (raw === 'novel ai' || raw === 'novel-ai') return 'novelai';
     if (NAISTERA_MODELS.includes(raw)) return raw;
-    // Anything the live catalogue knows about passes through untouched.
-    if (naisteraCatalog.has(raw)) return raw;
-    return naisteraCatalog.size > 0 ? ([...naisteraCatalog.keys()][0]) : 'grok';
+    return NAISTERA_MODELS[0];
 }
 
 function naisteraModelSupportsReferences(model) {
     const entry = getNaisteraCatalogEntry(model);
     if (entry) return entry.references === true;
     // No catalogue: fall back to the previously hardcoded behaviour.
-    const normalized = normalizeNaisteraModel(model);
-    return normalized !== 'novelai' && normalized !== 'grok-pro';
+    return normalizeNaisteraModel(model) !== 'novelai';
 }
 
 // Only the server knows this one, so without a catalogue the field stays hidden.
@@ -1084,10 +1122,15 @@ function naisteraModelSupportsNegativePrompt(model) {
     return getNaisteraCatalogEntry(model)?.negativePrompt === true;
 }
 
-// Presets apply to the Grok family; nano banana 2 and novelai ignore them.
+// Models that accept the digital/realism preset. The catalogue does not report
+// this capability, so it stays an explicit list. Empty for now — the Grok family
+// used to be the only one and Naistera no longer serves it — which simply keeps
+// the preset row hidden until something here matches again.
+const PRESET_CAPABLE_MODELS = Object.freeze([]);
+
 function naisteraModelSupportsPreset(model) {
-    const normalized = normalizeNaisteraModel(model);
-    return normalized === 'grok' || normalized === 'grok-pro';
+    const normalized = squashModelId(normalizeNaisteraModel(model));
+    return PRESET_CAPABLE_MODELS.some(id => squashModelId(id) === normalized);
 }
 
 // Wire values stay canonical (Naistera-accepted); labels get capitalized for UI.
@@ -1095,8 +1138,6 @@ function naisteraModelDisplayLabel(canonical) {
     const entry = naisteraCatalog.get(canonical);
     if (entry?.name) return entry.name;
     switch (canonical) {
-        case 'grok':          return 'Grok';
-        case 'grok-pro':      return 'Grok Pro';
         case 'nano banana 2': return 'Nano Banana 2';
         case 'novelai':       return 'NovelAI';
         default:              return canonical;
@@ -4661,6 +4702,7 @@ const IIG_MESSAGES_I18N = {
         cleanupTimedOut: 'Image Generation cleanup is still waiting for pending work or saves. Replacement remains blocked to protect your data. Wait for them to finish, then retry cleanup.',
         logsExported: 'Logs exported',
         grokRefsUnavailable: 'Grok refs unavailable right now - generating without references',
+        modelSwitched: 'Model switched to {model} — the saved one is no longer offered',
         unsafeImageUrl: 'Refusing to open an unsafe image URL',
         unsafeDownloadUrl: 'Refusing to download an unsafe URL',
         downloading: 'Downloading...',
@@ -4768,6 +4810,7 @@ const IIG_MESSAGES_I18N = {
         cleanupTimedOut: 'Очистка расширения генерации изображений всё ещё ожидает завершения операций или сохранений. Замена остаётся заблокированной для защиты данных. Дождитесь их завершения и повторите очистку.',
         logsExported: 'Логи экспортированы',
         grokRefsUnavailable: 'Референсы Grok сейчас недоступны - генерация без референсов',
+        modelSwitched: 'Модель переключена на {model} — сохранённая больше не предлагается',
         unsafeImageUrl: 'Небезопасный URL изображения не будет открыт',
         unsafeDownloadUrl: 'Скачивание по небезопасному URL запрещено',
         downloading: 'Скачивание...',
@@ -9163,9 +9206,9 @@ async function generateImageNaistera(prompt, style, options = {}, settings = { .
     const url = getNaisteraGenerationUrl(settings);
 
     const aspectRatio = options.aspectRatio || '1:1';
-    const model = normalizeNaisteraModel(options.model || settings.naisteraModel || 'grok');
+    const model = normalizeNaisteraModel(options.model || settings.naisteraModel);
     const rawPreset = options.preset || settings.naisteraPreset || null;
-    // Presets apply to Grok models; strip stale values on other models.
+    // Presets apply only to models listed in PRESET_CAPABLE_MODELS; strip stale values elsewhere.
     const preset = (rawPreset && naisteraModelSupportsPreset(model)) ? rawPreset : null;
     const suppliedRefs = naisteraModelSupportsReferences(model) ? (options.referenceImages || []) : [];
     const referenceObjects = suppliedRefs.slice(0, 4).map(ref => ({
@@ -12095,9 +12138,9 @@ const IIG_UI_I18N = {
         none: 'None',
         digital: 'Digital',
         realism: 'Realism',
-        naisteraPresetHint: 'Style preset for Grok models.',
+        naisteraPresetHint: 'Style preset, for models that accept one.',
         naisteraSendRefs: 'Send reference images (Naistera)',
-        naisteraRefsHint: 'Available for Grok and Nano Banana 2.',
+        naisteraRefsHint: 'Available for models that accept reference images.',
         resolution: 'Resolution',
         resolutionDefault: '1K (default)',
         geminiSendRefs: 'Send reference images (Gemini)',
@@ -12282,9 +12325,9 @@ const IIG_UI_I18N = {
         none: 'Нет',
         digital: 'Цифровой',
         realism: 'Реализм',
-        naisteraPresetHint: 'Пресет стиля для моделей Grok.',
+        naisteraPresetHint: 'Пресет стиля — для моделей, которые его принимают.',
         naisteraSendRefs: 'Отправлять референсы (Naistera)',
-        naisteraRefsHint: 'Доступно для Grok и Nano Banana 2.',
+        naisteraRefsHint: 'Доступно для моделей, которые принимают рефы.',
         resolution: 'Разрешение',
         resolutionDefault: '1K (по умолчанию)',
         geminiSendRefs: 'Отправлять референсы (Gemini)',
@@ -12734,12 +12777,12 @@ function createSettingsUI() {
                                 <option value="realism" data-i18n="iig_ui_realism" ${settings.naisteraPreset === 'realism' ? 'selected' : ''}>Realism</option>
                             </select>
                         </div>
-                        <p class="hint ${settings.apiType === 'naistera' && naisteraModelSupportsPreset(settings.naisteraModel) ? '' : 'iig-hidden'}" id="iig_naistera_preset_hint" data-i18n="iig_ui_naisteraPresetHint">Style preset for Grok models.</p>
+                        <p class="hint ${settings.apiType === 'naistera' && naisteraModelSupportsPreset(settings.naisteraModel) ? '' : 'iig-hidden'}" id="iig_naistera_preset_hint" data-i18n="iig_ui_naisteraPresetHint">Style preset, for models that accept one.</p>
                         <label class="checkbox_label ${settings.apiType === 'naistera' && naisteraModelSupportsReferences(settings.naisteraModel) ? '' : 'iig-hidden'}" id="iig_naistera_refs_row" style="margin-top: 6px;">
                             <input type="checkbox" id="iig_naistera_send_refs" ${settings.naisteraSendRefs !== false ? 'checked' : ''}>
                             <span data-i18n="iig_ui_naisteraSendRefs">Send reference images (Naistera)</span>
                         </label>
-                        <p class="hint ${settings.apiType === 'naistera' && naisteraModelSupportsReferences(settings.naisteraModel) ? '' : 'iig-hidden'}" id="iig_naistera_refs_hint" data-i18n="iig_ui_naisteraRefsHint">Available for Grok and Nano Banana 2.</p>
+                        <p class="hint ${settings.apiType === 'naistera' && naisteraModelSupportsReferences(settings.naisteraModel) ? '' : 'iig-hidden'}" id="iig_naistera_refs_hint" data-i18n="iig_ui_naisteraRefsHint">Available for models that accept reference images.</p>
 
                         <!-- Gemini params. Aspect ratio is tag-driven; only resolution is UI. -->
                         <div id="iig_gemini_params" class="${settings.apiType !== 'gemini' ? 'iig-hidden' : ''}">
@@ -14578,7 +14621,7 @@ function bindSettingsEvents() {
         document.getElementById('iig_quality_hint')?.classList.toggle('iig-hidden', !isOpenAI || novelAiModel);
 
         document.getElementById('iig_naistera_model_row')?.classList.toggle('iig-hidden', !isNaistera);
-        // Presets apply to the Grok family; other Naistera upstreams ignore the field.
+        // Presets apply only to models that declare support; others ignore the field.
         const presetAllowed = isNaistera && naisteraModelSupportsPreset(settings.naisteraModel);
         document.getElementById('iig_naistera_preset_row')?.classList.toggle('iig-hidden', !presetAllowed);
         document.getElementById('iig_naistera_preset_hint')?.classList.toggle('iig-hidden', !presetAllowed);
