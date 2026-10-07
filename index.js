@@ -11454,7 +11454,7 @@ function buildNpcSlotHtml(i) {
                 </div>
                 <div class="iig-ref-actions">
                     ${refPacksPillHtml()}
-                    <button type="button" class="menu_button iig-ref-appearance-btn" title="Appearance note" data-i18n="[title]iig_ui_appearanceTitle"><i class="fa-solid fa-pen" aria-hidden="true"></i><span data-i18n="iig_ui_appearance">Look</span></button>
+                    <button type="button" class="menu_button iig-ref-appearance-btn" title="Appearance note" data-i18n="[title]iig_ui_appearanceTitle"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>
                     <button type="button" class="menu_button iig-ref-delete-btn" title="Remove reference" data-i18n="[title]iig_ui_removeReference"><i class="fa-solid fa-trash-can"></i><span data-i18n="iig_ui_remove">Remove</span></button>
                 </div>
             </div>`;
@@ -11848,7 +11848,7 @@ function buildMainSlotsHtml() {
                                      </div>
                                      <div class="iig-ref-actions">
                                          ${refPacksPillHtml()}
-                                         <button type="button" class="menu_button iig-ref-appearance-btn" title="Appearance note" data-i18n="[title]iig_ui_appearanceTitle"><i class="fa-solid fa-pen" aria-hidden="true"></i><span data-i18n="iig_ui_appearance">Look</span></button>
+                                         <button type="button" class="menu_button iig-ref-appearance-btn" title="Appearance note" data-i18n="[title]iig_ui_appearanceTitle"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>
                                          <button type="button" class="menu_button iig-ref-delete-btn" title="Remove reference" data-i18n="[title]iig_ui_removeReference"><i class="fa-solid fa-trash-can"></i><span data-i18n="iig_ui_remove">Remove</span></button>
                                      </div>
                                 </div>
@@ -11869,7 +11869,7 @@ function buildMainSlotsHtml() {
                                      </div>
                                      <div class="iig-ref-actions">
                                          ${refPacksPillHtml()}
-                                         <button type="button" class="menu_button iig-ref-appearance-btn" title="Appearance note" data-i18n="[title]iig_ui_appearanceTitle"><i class="fa-solid fa-pen" aria-hidden="true"></i><span data-i18n="iig_ui_appearance">Look</span></button>
+                                         <button type="button" class="menu_button iig-ref-appearance-btn" title="Appearance note" data-i18n="[title]iig_ui_appearanceTitle"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>
                                          <button type="button" class="menu_button iig-ref-delete-btn" title="Remove reference" data-i18n="[title]iig_ui_removeReference"><i class="fa-solid fa-trash-can"></i><span data-i18n="iig_ui_remove">Remove</span></button>
                                      </div>
                                 </div>`;
@@ -11988,7 +11988,6 @@ function renderRefSlots() {
 
 const IIG_UI_I18N = {
     en: {
-        appearance: 'Look',
         appearanceTitle: 'Appearance note — added to the prompt when this reference is sent',
         appearanceHeading: 'Appearance note',
         appearanceFor: 'Appearance note — {name}',
@@ -12176,7 +12175,6 @@ const IIG_UI_I18N = {
         probeReturnedStatus: 'Endpoint reached, but the non-generation probe returned HTTP {status}.',
     },
     ru: {
-        appearance: 'Внешность',
         appearanceTitle: 'Описание внешности — дописывается к промпту, когда этот реф уходит в запрос',
         appearanceHeading: 'Описание внешности',
         appearanceFor: 'Описание внешности — {name}',
