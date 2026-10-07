@@ -7595,7 +7595,7 @@ function ensureRefSlots(container) {
         container.userRef = { name: '', imageBase64: '', imagePath: '' };
     }
     if (!Array.isArray(container.npcReferences)) container.npcReferences = [];
-    while (container.npcReferences.length < 4) {
+    while (container.npcReferences.length < IIG_NPC_SLOT_COUNT) {
         container.npcReferences.push({ name: '', imageBase64: '', imagePath: '' });
     }
     for (let index = 0; index < container.npcReferences.length; index++) {
@@ -7606,6 +7606,9 @@ function ensureRefSlots(container) {
     }
     for (const ref of [container.charRef, container.userRef, ...container.npcReferences]) {
         if (typeof ref.packAssetId !== 'string' || !(ref.imagePath || ref.imageBase64 || ref.imageData)) ref.packAssetId = '';
+        // Appearance note: free-form text appended to the prompt whenever THIS
+        // ref is actually sent. Added here so existing saved slots gain it empty.
+        if (typeof ref.appearance !== 'string') ref.appearance = '';
     }
     return container;
 }
@@ -7810,7 +7813,7 @@ function getActiveRefScope({ forWrite = false } = {}) {
 
 function setRefMutationControlsDisabled(disabled) {
     if (_iigDisposed) return;
-    document.querySelectorAll('.iig-ref-file-input, .iig-ref-delete-btn, .iig-ref-packs-btn, .iig-ref-name, #iig_ref_scope, #iig_refs_reset_scope')
+    document.querySelectorAll('.iig-ref-file-input, .iig-ref-delete-btn, .iig-ref-packs-btn, .iig-ref-appearance-btn, .iig-ref-name, #iig_ref_scope, #iig_refs_reset_scope')
         .forEach(element => { element.disabled = !!disabled; });
 }
 
@@ -7898,7 +7901,7 @@ function matchNpcReferences(prompt, npcList) {
     for (const npc of npcList) {
         if (!npc || !npc.name || (!npc.imagePath && !npc.imageBase64 && !npc.imageData)) continue;
         if (nameMatchesPrompt(npc.name, prompt)) {
-            matched.push({ name: npc.name, imageBase64: npc.imageBase64, imagePath: npc.imagePath, imageData: npc.imageData });
+            matched.push({ name: npc.name, imageBase64: npc.imageBase64, imagePath: npc.imagePath, imageData: npc.imageData, appearance: npc.appearance || '' });
         }
     }
 
@@ -9304,14 +9307,14 @@ async function collectReferenceEntriesAsBase64(promptText, maxRefs = 4, settings
     if (settings.charRefAlways || refMatchesPrompt(refs.charRef, promptText, charName)) {
         const charB64 = await getB64(refs.charRef);
         if (charB64) {
-            out.push({ image: charB64, description: String(refs.charRef?.name || charName || '').trim() });
+            out.push({ image: charB64, description: String(refs.charRef?.name || charName || '').trim(), appearance: String(refs.charRef?.appearance || '').trim() });
             iigLog('DEBUG:refs', `char ref sent (${settings.charRefAlways ? 'always' : 'name match'})`);
         }
     }
     if (out.length < maxRefs && (settings.userRefAlways || refMatchesPrompt(refs.userRef, promptText, userName))) {
         const userB64 = await getB64(refs.userRef);
         if (userB64) {
-            out.push({ image: userB64, description: String(refs.userRef?.name || userName || '').trim() });
+            out.push({ image: userB64, description: String(refs.userRef?.name || userName || '').trim(), appearance: String(refs.userRef?.appearance || '').trim() });
             iigLog('DEBUG:refs', `user ref sent (${settings.userRefAlways ? 'always' : 'name match'})`);
         }
     }
@@ -9321,12 +9324,45 @@ async function collectReferenceEntriesAsBase64(promptText, maxRefs = 4, settings
         if (out.length >= maxRefs) break;
         const b64 = await getB64(npc);
         if (b64) {
-            out.push({ image: b64, description: String(npc.name || '').trim() });
+            out.push({ image: b64, description: String(npc.name || '').trim(), appearance: String(npc.appearance || '').trim() });
             iigLog('DEBUG:refs', `NPC matched: ${npc.name}`);
         }
     }
 
     return out.slice(0, maxRefs);
+}
+
+
+/**
+ * Appearance notes for the refs that are ACTUALLY being sent.
+ *
+ * Built from the collected entries rather than from the slots, so a note can
+ * never leak into the prompt for a character who is not in the shot: if the
+ * ref did not match a name (or did not fit under the 4-ref cap), it is not in
+ * `entries` and its note is not appended.
+ *
+ * @param {Array<{description?: string, appearance?: string}>} entries
+ * @returns {string} text to append to the prompt, or '' when there is nothing
+ */
+function buildRefAppearanceSuffix(entries) {
+    const lines = [];
+    for (const entry of entries || []) {
+        const note = String(entry?.appearance || '').trim();
+        if (!note) continue;
+        const name = String(entry?.description || '').trim();
+        const clean = note.replace(/\s+/g, ' ').replace(/[.\s]+$/, '');
+        lines.push(name ? `${name}: ${clean}.` : `${clean}.`);
+    }
+    return lines.join(' ');
+}
+
+/** Append the notes to a prompt, keeping spacing sane. */
+function applyRefAppearanceNotes(promptText, entries) {
+    const suffix = buildRefAppearanceSuffix(entries);
+    if (!suffix) return promptText;
+    const base = String(promptText || '').trim();
+    if (!base) return suffix;
+    return /[.!?]$/.test(base) ? `${base} ${suffix}` : `${base}. ${suffix}`;
 }
 
 /** Collect refs as raw base64 for OpenAI/Gemini. */
@@ -9336,15 +9372,18 @@ async function collectReferencesAsBase64(promptText, maxRefs = 4, settings) {
 }
 
 /** Collect structured data-URL references for Naistera. */
-async function collectReferencesAsDataUrls(promptText, maxRefs = 4, settings) {
-    const entries = await collectReferenceEntriesAsBase64(promptText, maxRefs, settings);
-    return entries.map(ref => {
+function refEntriesToDataUrls(entries) {
+    return (entries || []).map(ref => {
         const b64 = ref.image;
         const image = String(b64).startsWith('data:')
             ? b64
             : `data:${detectImageMimeFromBase64(b64)};base64,${b64}`;
         return { image, description: ref.description };
     });
+}
+
+async function collectReferencesAsDataUrls(promptText, maxRefs = 4, settings) {
+    return refEntriesToDataUrls(await collectReferenceEntriesAsBase64(promptText, maxRefs, settings));
 }
 
 /** Hint toast for known error patterns. Same suggestion suppressed 30s. Never throws. */
@@ -10093,11 +10132,16 @@ async function generateImageWithRetry(prompt, style, onStatusUpdate, options = {
     // Ref gating by apiType: naistera = model + toggle; gemini = toggle; openai = always.
     let referenceImages = [];
     let referenceDataUrls = [];
+    // Collected once so the appearance notes can be taken from the very same
+    // list that decides which images are sent — a note can then never describe
+    // someone who is not in the shot.
+    let refEntries = [];
     if (settings.apiType === 'naistera') {
         const modelOk = naisteraModelSupportsReferences(settings.naisteraModel);
         const userOk = settings.naisteraSendRefs !== false;
         if (modelOk && userOk) {
-            referenceDataUrls = await collectReferencesAsDataUrls(prompt, 4, settings);
+            refEntries = await collectReferenceEntriesAsBase64(prompt, 4, settings);
+            referenceDataUrls = refEntriesToDataUrls(refEntries);
         } else {
             iigLog('INFO', `Naistera refs skipped: modelOk=${modelOk}, userOk=${userOk}`);
         }
@@ -10105,7 +10149,14 @@ async function generateImageWithRetry(prompt, style, onStatusUpdate, options = {
         iigLog('INFO', 'Gemini refs skipped: user toggle off');
     } else {
         const maxRefs = settings.apiType === 'openai' && isRoutMyNovelAiModel(settings.model) ? 2 : 4;
-        referenceImages = await collectReferencesAsBase64(prompt, maxRefs, settings);
+        refEntries = await collectReferenceEntriesAsBase64(prompt, maxRefs, settings);
+        referenceImages = refEntries.map(ref => ref.image);
+    }
+
+    const promptWithNotes = applyRefAppearanceNotes(prompt, refEntries);
+    if (promptWithNotes !== prompt) {
+        iigLog('DEBUG:refs', `appearance notes appended: ${promptWithNotes.slice(prompt.length).trim()}`);
+        prompt = promptWithNotes;
     }
 
     let lastError;
@@ -11403,11 +11454,128 @@ function buildNpcSlotHtml(i) {
                 </div>
                 <div class="iig-ref-actions">
                     ${refPacksPillHtml()}
+                    <button type="button" class="menu_button iig-ref-appearance-btn" title="Appearance note" data-i18n="[title]iig_ui_appearanceTitle"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>
                     <button type="button" class="menu_button iig-ref-delete-btn" title="Remove reference" data-i18n="[title]iig_ui_removeReference"><i class="fa-solid fa-trash-can"></i><span data-i18n="iig_ui_remove">Remove</span></button>
                 </div>
             </div>`;
 }
 
+
+
+// =========================================================================
+// Appearance notes
+//
+// Free-form visual traits per ref slot ("long wavy red hair, silver eyes").
+// Appended to the prompt only for refs that are actually sent — see
+// buildRefAppearanceSuffix. Useful when the writing model keeps dropping a
+// detail and the picture comes out wrong.
+// =========================================================================
+
+// Soft cap: typing past it is allowed, the counter just warns. Four long notes
+// can outweigh the scene prompt itself, and that is worth seeing.
+const APPEARANCE_SOFT_LIMIT = 200;
+
+/** Marks the slot button so a filled note is visible without opening it. */
+function refreshAppearanceButton(slot, text) {
+    const btn = slot?.querySelector('.iig-ref-appearance-btn');
+    if (btn) btn.classList.toggle('has-note', !!String(text || '').trim());
+}
+
+function closeAppearanceModal() {
+    document.getElementById('iig-appearance-overlay')?.remove();
+}
+
+/**
+ * @param {HTMLElement} slot slot element the note belongs to
+ * @param {'char'|'user'|'npc'} refType
+ * @param {number} npcIndex index for npc slots, ignored otherwise
+ */
+function openAppearanceModal(slot, refType, npcIndex) {
+    closeAppearanceModal();
+
+    const readRef = (container) => refType === 'npc'
+        ? container.npcReferences[npcIndex]
+        : container[`${refType}Ref`];
+
+    const current = readRef(getActiveRefScope().container) || {};
+    const slotName = String(current.name || '').trim()
+        || (refType === 'char' ? getStCharName() : refType === 'user' ? getStUserName() : '')
+        || iigT('iig_ui_unnamedSlot');
+
+    const overlay = document.createElement('div');
+    overlay.id = 'iig-appearance-overlay';
+    overlay.className = 'iig-appearance-ov';
+    overlay.innerHTML = `
+        <div class="iig-appearance-box" role="dialog" aria-label="${escapeAttr(iigT('iig_ui_appearanceHeading'))}">
+            <div class="sw-modal-header">
+                <span><i class="fa-solid fa-pen"></i> ${sanitizeForHtml(iigT('iig_ui_appearanceFor', { name: slotName }))}</span>
+                <div class="sw-modal-close" id="iig_appearance_close"><i class="fa-solid fa-xmark"></i></div>
+            </div>
+            <div class="iig-appearance-body">
+                <textarea class="text_pole iig-appearance-input" spellcheck="false"
+                    placeholder="${escapeAttr(iigT('iig_ui_appearancePlaceholder'))}"></textarea>
+                <div class="iig-appearance-meta">
+                    <span class="iig-appearance-hint">${sanitizeForHtml(iigT('iig_ui_appearanceHint'))}</span>
+                    <span class="iig-appearance-count"></span>
+                </div>
+            </div>
+            <div class="iig-appearance-btns">
+                <button type="button" class="menu_button iig-appearance-save">${sanitizeForHtml(iigT('iig_ui_appearanceSave'))}</button>
+                <button type="button" class="menu_button iig-appearance-clear">${sanitizeForHtml(iigT('iig_ui_appearanceClear'))}</button>
+            </div>
+        </div>`;
+    document.body.appendChild(overlay);
+
+    const input = overlay.querySelector('.iig-appearance-input');
+    const count = overlay.querySelector('.iig-appearance-count');
+    input.value = String(current.appearance || '');
+
+    const updateCount = () => {
+        const n = input.value.trim().length;
+        count.textContent = `${n} / ${APPEARANCE_SOFT_LIMIT}`;
+        count.classList.toggle('warn', n > APPEARANCE_SOFT_LIMIT && n <= APPEARANCE_SOFT_LIMIT * 2);
+        count.classList.toggle('over', n > APPEARANCE_SOFT_LIMIT * 2);
+        count.title = n > APPEARANCE_SOFT_LIMIT ? iigT('iig_ui_appearanceLong') : '';
+    };
+    updateCount();
+    input.addEventListener('input', updateCount);
+
+    const write = (value) => {
+        slot._iigRefMutation = Symbol();
+        const scopeHandle = getActiveRefScope({ forWrite: true });
+        const container = scopeHandle.container;
+        if (refType === 'npc' && !container.npcReferences[npcIndex]) {
+            container.npcReferences[npcIndex] = { name: '', imageBase64: '', imagePath: '', packAssetId: '', appearance: '' };
+        }
+        const ref = readRef(container);
+        if (!ref) return;
+        ref.appearance = value;
+        saveActiveRefs(scopeHandle);
+        refreshAppearanceButton(slot, value);
+    };
+
+    overlay.querySelector('.iig-appearance-save').addEventListener('click', () => {
+        write(input.value.trim());
+        toastr.success(sanitizeForHtml(iigT('iig_ui_appearanceSaved')), sanitizeForHtml(iigT('iig_title')), { timeOut: 1800, escapeHtml: false });
+        closeAppearanceModal();
+    });
+    overlay.querySelector('.iig-appearance-clear').addEventListener('click', () => {
+        write('');
+        toastr.info(sanitizeForHtml(iigT('iig_ui_appearanceCleared')), sanitizeForHtml(iigT('iig_title')), { timeOut: 1800, escapeHtml: false });
+        closeAppearanceModal();
+    });
+    overlay.querySelector('#iig_appearance_close').addEventListener('click', closeAppearanceModal);
+    overlay.addEventListener('pointerdown', (e) => { if (e.target === overlay) closeAppearanceModal(); });
+    const onKey = (e) => {
+        if (e.key !== 'Escape') return;
+        e.stopPropagation();
+        closeAppearanceModal();
+        document.removeEventListener('keydown', onKey, true);
+    };
+    document.addEventListener('keydown', onKey, true);
+
+    input.focus();
+}
 
 // =========================================================================
 // PORTED: recent references ribbon
@@ -11680,6 +11848,7 @@ function buildMainSlotsHtml() {
                                      </div>
                                      <div class="iig-ref-actions">
                                          ${refPacksPillHtml()}
+                                         <button type="button" class="menu_button iig-ref-appearance-btn" title="Appearance note" data-i18n="[title]iig_ui_appearanceTitle"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>
                                          <button type="button" class="menu_button iig-ref-delete-btn" title="Remove reference" data-i18n="[title]iig_ui_removeReference"><i class="fa-solid fa-trash-can"></i><span data-i18n="iig_ui_remove">Remove</span></button>
                                      </div>
                                 </div>
@@ -11700,6 +11869,7 @@ function buildMainSlotsHtml() {
                                      </div>
                                      <div class="iig-ref-actions">
                                          ${refPacksPillHtml()}
+                                         <button type="button" class="menu_button iig-ref-appearance-btn" title="Appearance note" data-i18n="[title]iig_ui_appearanceTitle"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>
                                          <button type="button" class="menu_button iig-ref-delete-btn" title="Remove reference" data-i18n="[title]iig_ui_removeReference"><i class="fa-solid fa-trash-can"></i><span data-i18n="iig_ui_remove">Remove</span></button>
                                      </div>
                                 </div>`;
@@ -11781,6 +11951,7 @@ function renderRefSlots() {
 
     const setThumb = (slot, ref) => {
         clearPackedRefSlotAppearance(slot);
+        refreshAppearanceButton(slot, ref?.appearance);
         const thumb = slot?.querySelector('.iig-ref-thumb');
         const wrap = slot?.querySelector('.iig-ref-thumb-wrap');
         if (!thumb) return;
@@ -11817,6 +11988,17 @@ function renderRefSlots() {
 
 const IIG_UI_I18N = {
     en: {
+        appearanceTitle: 'Appearance note — added to the prompt when this reference is sent',
+        appearanceHeading: 'Appearance note',
+        appearanceFor: 'Appearance note — {name}',
+        appearancePlaceholder: 'long wavy red hair, silver eyes',
+        appearanceHint: 'Appended to the prompt only when this reference is actually sent. Use short visual traits, not a story.',
+        appearanceSave: 'Save',
+        appearanceClear: 'Clear',
+        appearanceSaved: 'Appearance note saved',
+        appearanceCleared: 'Appearance note cleared',
+        appearanceLong: 'Long notes compete with the scene prompt',
+        unnamedSlot: 'unnamed slot',
         title: '⊹ INLINE IMAGE GENERATION ⊹',
         intro: 'Configure your provider, generation defaults and character references.',
         enabled: 'Enable image generation',
@@ -11993,6 +12175,17 @@ const IIG_UI_I18N = {
         probeReturnedStatus: 'Endpoint reached, but the non-generation probe returned HTTP {status}.',
     },
     ru: {
+        appearanceTitle: 'Описание внешности — дописывается к промпту, когда этот реф уходит в запрос',
+        appearanceHeading: 'Описание внешности',
+        appearanceFor: 'Описание внешности — {name}',
+        appearancePlaceholder: 'long wavy red hair, silver eyes',
+        appearanceHint: 'Дописывается к промпту только когда этот реф реально уходит в запрос. Пиши короткие визуальные приметы, а не историю.',
+        appearanceSave: 'Сохранить',
+        appearanceClear: 'Очистить',
+        appearanceSaved: 'Описание сохранено',
+        appearanceCleared: 'Описание очищено',
+        appearanceLong: 'Длинное описание перебивает промпт сцены',
+        unnamedSlot: 'слот без имени',
         title: '⊹ INLINE IMAGE GENERATION ⊹',
         intro: 'Настройте провайдера, параметры генерации по умолчанию и референсы персонажей.',
         enabled: 'Включить генерацию изображений',
@@ -14286,6 +14479,12 @@ function bindRefSlotEvents() {
             });
         });
 
+        const appearanceBtn = slot.querySelector('.iig-ref-appearance-btn');
+        bindIig(appearanceBtn, 'click', () => {
+            if (_refFolderClearInProgress) return;
+            openAppearanceModal(slot, refType, npcIndex);
+        });
+
         const deleteBtn = slot.querySelector('.iig-ref-delete-btn');
         bindIig(deleteBtn, 'click', () => {
             if (_refFolderClearInProgress) return;
@@ -14296,13 +14495,13 @@ function bindRefSlotEvents() {
             let prevPath = '';
             if (refType === 'char') {
                 prevPath = s.charRef?.imagePath || '';
-                s.charRef = { name: '', imageBase64: '', imagePath: '', packAssetId: '' };
+                s.charRef = { name: '', imageBase64: '', imagePath: '', packAssetId: '', appearance: '' };
             } else if (refType === 'user') {
                 prevPath = s.userRef?.imagePath || '';
-                s.userRef = { name: '', imageBase64: '', imagePath: '', packAssetId: '' };
+                s.userRef = { name: '', imageBase64: '', imagePath: '', packAssetId: '', appearance: '' };
             } else if (refType === 'npc') {
                 prevPath = s.npcReferences[npcIndex]?.imagePath || '';
-                s.npcReferences[npcIndex] = { name: '', imageBase64: '', imagePath: '', packAssetId: '' };
+                s.npcReferences[npcIndex] = { name: '', imageBase64: '', imagePath: '', packAssetId: '', appearance: '' };
             }
             if (prevPath) invalidateRefB64Cache(prevPath);
             saveActiveRefs(scopeHandle);
@@ -14312,6 +14511,7 @@ function bindRefSlotEvents() {
             const thumbWrap = slot.querySelector('.iig-ref-thumb-wrap');
             if (thumbWrap) thumbWrap.classList.remove('has-image');
             clearPackedRefSlotAppearance(slot);
+            refreshAppearanceButton(slot, '');
             const nameEl = slot.querySelector('.iig-ref-name');
             if (nameEl) nameEl.value = '';
 
