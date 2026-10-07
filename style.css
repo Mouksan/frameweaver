@@ -4818,3 +4818,90 @@ body.iig-low-power [class*="iig-"]::after {
     margin: 0;
     font-size: 0.85em;
 }
+
+/* ==================== Описание внешности у рефа ==================== */
+
+/* Заполненное описание видно по кнопке, без открывания окна. */
+.iig-ref-appearance-btn.has-note {
+    border-color: var(--slay-pink, var(--SmartThemeQuoteColor, #f472b6));
+    color: var(--slay-pink, var(--SmartThemeQuoteColor, #f472b6));
+}
+
+.iig-appearance-ov {
+    position: fixed;
+    inset: 0;
+    z-index: 100001;
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+}
+
+.iig-appearance-box {
+    width: min(540px, 100%);
+    max-height: 92dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: rgba(20, 20, 30, 0.98);
+    border: 1px solid var(--slay-pink, var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.15)));
+    border-radius: 14px;
+    box-shadow: 0 16px 50px rgba(0, 0, 0, 0.55);
+}
+
+.iig-appearance-body {
+    padding: 12px 14px 4px;
+}
+
+textarea.iig-appearance-input {
+    width: 100%;
+    min-height: 110px;
+    max-height: 40dvh;
+    resize: vertical;
+    font-size: 0.85em;
+    line-height: 1.5;
+}
+
+.iig-appearance-meta {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 6px;
+}
+
+.iig-appearance-hint {
+    font-size: 0.72em;
+    opacity: 0.55;
+    line-height: 1.4;
+}
+
+.iig-appearance-count {
+    flex: 0 0 auto;
+    font-size: 0.72em;
+    opacity: 0.55;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Мягкое ограничение: ввод не блокируется, цвет только предупреждает. */
+.iig-appearance-count.warn {
+    opacity: 1;
+    color: #fbbf24;
+}
+
+.iig-appearance-count.over {
+    opacity: 1;
+    color: #f87171;
+}
+
+.iig-appearance-btns {
+    display: flex;
+    gap: 8px;
+    padding: 10px 14px 14px;
+}
+
+.iig-appearance-btns .menu_button {
+    flex: 1;
+}
