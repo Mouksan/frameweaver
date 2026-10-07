@@ -1032,28 +1032,48 @@ async function loadNaisteraCatalogIfNeeded(force = false) {
     }
 }
 
+
+/**
+ * Options for the Naistera model select.
+ *
+ * Shared by the first render (catalogue usually not fetched yet) and by
+ * refreshNaisteraModelSelect. The saved model is listed even when it is absent
+ * from the offline fallback list, so a valid choice is never silently swapped
+ * for the first entry while the catalogue is still loading.
+ */
+function buildNaisteraModelOptionsHtml(settings = getSettings()) {
+    const ids = getNaisteraModelIds();
+    const saved = String(settings.naisteraModel || '');
+    const current = naisteraCatalog.size > 0 ? normalizeNaisteraModel(saved) : saved;
+    const options = !current || ids.includes(current) ? ids : [current, ...ids];
+    return options.map(id =>
+        `<option value="${sanitizeForHtml(id)}" ${current === id ? 'selected' : ''}>${sanitizeForHtml(naisteraModelDisplayLabel(id))}</option>`).join('');
+}
+
 function refreshNaisteraModelSelect() {
     const select = document.getElementById('iig_naistera_model');
     if (!select) return;
 
     const settings = getSettings();
     const ids = getNaisteraModelIds();
-    // A saved model that the catalogue no longer lists would otherwise be sent
-    // to the API verbatim and fail; fall back to the first available one.
-    let current = ids.includes(settings.naisteraModel)
-        ? settings.naisteraModel
-        : normalizeNaisteraModel(settings.naisteraModel);
-    // Normalization can still land outside the list (no catalogue loaded, or a
-    // built-in name with no counterpart). Without this the <option> list has no
-    // match, the browser silently shows the first entry, and the setting keeps
-    // its stale value — the UI and the request then disagree.
-    if (!ids.includes(current)) current = ids[0];
+    const haveCatalogue = naisteraCatalog.size > 0;
 
-    select.innerHTML = ids.map(id =>
+    // Without a catalogue the list is just the offline fallback, which is far
+    // shorter than what the server really offers. Switching the saved model to
+    // fit it would discard a valid choice, so the saved value is kept and shown
+    // as its own option until the real catalogue arrives.
+    let current = settings.naisteraModel;
+    if (haveCatalogue && !ids.includes(current)) {
+        current = normalizeNaisteraModel(current);
+        if (!ids.includes(current)) current = ids[0];
+    }
+
+    const options = !current || ids.includes(current) ? ids : [current, ...ids];
+    select.innerHTML = options.map(id =>
         `<option value="${sanitizeForHtml(id)}" ${current === id ? 'selected' : ''}>${sanitizeForHtml(naisteraModelDisplayLabel(id))}</option>`).join('');
-    select.value = current;
+    if (current) select.value = current;
 
-    if (current !== settings.naisteraModel) {
+    if (haveCatalogue && current !== settings.naisteraModel) {
         iigLog('WARN', `Saved Naistera model "${settings.naisteraModel}" is not in the catalogue; switched to "${current}"`);
         const previous = settings.naisteraModel;
         settings.naisteraModel = current;
@@ -1098,16 +1118,17 @@ function normalizeNaisteraModel(model) {
         return [...naisteraCatalog.keys()][0];
     }
 
-    // No catalogue — offline behaviour on the built-in names.
+    // No catalogue (not fetched yet, no key, network down). Only the legacy
+    // spellings are rewritten; anything else passes through untouched, because
+    // offline we have no authority to call a name wrong — the user may well have
+    // picked a real id that simply is not in the short fallback list.
     if (!raw) return NAISTERA_MODELS[0];
     if (raw === 'nano-banana' || raw === 'nano banana'
-        || raw === 'nano-banana-pro' || raw === 'nano banana pro'
-        || raw === 'nano-banana-2' || raw === 'nano banana 2') {
+        || raw === 'nano-banana-pro' || raw === 'nano banana pro') {
         return 'nano banana 2';
     }
     if (raw === 'novel ai' || raw === 'novel-ai') return 'novelai';
-    if (NAISTERA_MODELS.includes(raw)) return raw;
-    return NAISTERA_MODELS[0];
+    return raw;
 }
 
 function naisteraModelSupportsReferences(model) {
@@ -1427,7 +1448,12 @@ function getSettings() {
     }
     s.promptModel.connection = s.promptModel.connection === 'gemini' ? 'gemini' : 'default';
     if (!Array.isArray(s.promptModel.gemini.presets)) s.promptModel.gemini.presets = [];
-    if (typeof s.naisteraModel === 'string') {
+    // Only reconcile the saved model once the live catalogue is actually here.
+    // Settings load before the catalogue is fetched, and normalizing against the
+    // offline fallback list would throw away a perfectly good saved id (a real
+    // one like "nano-banana-2-lite" is not in that short list). When the
+    // catalogue arrives, refreshNaisteraModelSelect does the reconciliation.
+    if (typeof s.naisteraModel === 'string' && naisteraCatalog.size > 0) {
         const canonical = normalizeNaisteraModel(s.naisteraModel);
         if (canonical !== s.naisteraModel) s.naisteraModel = canonical;
     }
@@ -12760,7 +12786,7 @@ function createSettingsUI() {
                         <div class="flex-row ${settings.apiType === 'naistera' ? '' : 'iig-hidden'}" id="iig_naistera_model_row">
                             <label for="iig_naistera_model" data-i18n="iig_ui_model">Model</label>
                             <select id="iig_naistera_model" class="flex1">
-                                ${getNaisteraModelIds().map(m => `<option value="${sanitizeForHtml(m)}" ${normalizeNaisteraModel(settings.naisteraModel) === m ? 'selected' : ''}>${sanitizeForHtml(naisteraModelDisplayLabel(m))}</option>`).join('')}
+                                ${buildNaisteraModelOptionsHtml(settings)}
                             </select>
                         </div>
 
