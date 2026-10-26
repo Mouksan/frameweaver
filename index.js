@@ -2960,8 +2960,8 @@ function buildAuthHeaders(apiKey, extra = {}) {
         const mode = swS.describeMode || 'direct';
         const promptStyle = (category === 'hair') ? 'hair' : (swS.describePromptStyle || 'detailed');
         const describePrompt = DESCRIBE_PROMPTS[promptStyle] || DESCRIBE_PROMPTS.detailed;
-        const maxDescLen = (category === 'hair') ? 450 : (promptStyle === 'simple' ? 800 : 1200);
-		const maxTokens = (category === 'hair') ? 150 : 600;
+        const maxDescLen = (category === 'hair') ? 1000 : (promptStyle === 'simple' ? 2000 : 3500);
+		const maxTokens = (category === 'hair') ? 400 : 800;
         swLog('INFO', `swAnalyzeOutfit: mode=${mode}, promptStyle=${promptStyle}, maxLen=${maxDescLen}`);
         toastr.info('Анализ образа...', 'Гардероб', { timeOut: 15000 });
 
