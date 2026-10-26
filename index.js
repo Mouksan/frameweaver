@@ -825,6 +825,9 @@ const defaultSettings = Object.freeze({
     // Prompt-driven: tag JSON wins over UI defaults. Off = UI always applied.
     // Aspect ratio is always tag-driven regardless of this flag.
     promptDriven: true,
+    // Generate images in the user's own posts too (impersonated posts carry
+    // image tags). The regenerate button is shown on user posts regardless.
+    userPostImages: true,
     imageSize: '1K',                // Gemini: 1K/2K/4K
     // User toggle for providers or models that reject references.
     geminiSendRefs: true,
@@ -11132,7 +11135,7 @@ async function processMessageTags(messageId, options = {}) {
 
     try {
         const message = context.chat[messageId];
-        if (!message || message.is_user) {
+        if (!message || (message.is_user && !options.allowUser)) {
             // Cooldown-stamp so repeated renders on user/empty msgs don't re-enter.
             markRecentlyProcessed(procKey);
             return false;
@@ -11441,7 +11444,8 @@ function addButtonsToExistingMessages() {
         const messageId = parseInt(mesId, 10);
         const message = context.chat[messageId];
         
-        if (message && !message.is_user) {
+        // User posts get the button too: impersonated posts carry image tags.
+        if (message && !message.is_system) {
             addRegenerateButton(messageElement);
             addedCount++;
         }
@@ -11475,6 +11479,34 @@ async function onMessageReceived(messageId) {
         addRegenerateButton(messageElement);
         
         await processMessageTags(messageId);
+    } finally {
+        _eventHandlerDepth--;
+    }
+}
+
+/**
+ * The user's own post was rendered. Adds the regenerate button and — when
+ * "Generate images in user posts" is on — draws its image tags the same way
+ * a character post would (impersonated posts carry the tags).
+ */
+async function onUserMessageRendered(messageId) {
+    if (_eventHandlerDepth >= MAX_EVENT_HANDLER_DEPTH) {
+        iigLog('WARN', `Blocked recursive onUserMessageRendered (depth=${_eventHandlerDepth}) for message ${messageId}`);
+        return;
+    }
+    _eventHandlerDepth++;
+    try {
+        const settings = getSettings();
+        if (!settings.enabled) return;
+        const messageElement = document.querySelector(`#chat .mes[mesid="${messageId}"]`);
+        if (!messageElement) return;
+        addRegenerateButton(messageElement);
+        if (settings.userPostImages === false) return;
+        // Fire-and-forget: ST awaits USER_MESSAGE_RENDERED listeners before it
+        // starts generating the reply — awaiting a ~1 min image here would
+        // hold the reply back. The busy flag / iig:message-done still work.
+        trackIigTask(processMessageTags(messageId, { allowUser: true })).catch(e =>
+            iigLog('ERROR', `User post image generation failed: ${e?.message || e}`));
     } finally {
         _eventHandlerDepth--;
     }
@@ -12104,6 +12136,8 @@ const IIG_UI_I18N = {
         enabled: 'Enable image generation',
         promptDriven: 'Use generation settings from tags',
         promptDrivenHint: 'When enabled, tag values override UI defaults. Aspect ratio always comes from the tag.',
+        userPosts: 'Generate images in user posts',
+        userPostsHint: 'Image tags in your own posts (e.g. impersonated ones) are drawn on send. The images button is always available on your posts.',
         apiConfiguration: 'API Configuration',
         loadPreset: 'Load a saved API preset',
         presets: '-- Presets --',
@@ -12291,6 +12325,8 @@ const IIG_UI_I18N = {
         enabled: 'Включить генерацию изображений',
         promptDriven: 'Использовать параметры генерации из тегов',
         promptDrivenHint: 'Если включено, значения тегов заменяют настройки интерфейса. Соотношение сторон всегда берётся из тега.',
+        userPosts: 'Генерировать картинки в постах юзера',
+        userPostsHint: 'Теги картинок в твоих постах (например, после имперсонейта) рисуются при отправке. Кнопка картинок на твоих постах есть всегда.',
         apiConfiguration: 'Настройки API',
         loadPreset: 'Загрузить сохранённый пресет API',
         presets: '-- Пресеты --',
@@ -12492,6 +12528,11 @@ function createSettingsUI() {
                         <span data-i18n="iig_ui_promptDriven">Use generation settings from tags</span>
                     </label>
                     <p class="hint" data-i18n="iig_ui_promptDrivenHint">When enabled, tag values override UI defaults. Aspect ratio always comes from the tag.</p>
+                    <label class="checkbox_label" style="margin-top: 6px;">
+                        <input type="checkbox" id="iig_user_posts" ${settings.userPostImages !== false ? 'checked' : ''}>
+                        <span data-i18n="iig_ui_userPosts">Generate images in user posts</span>
+                    </label>
+                    <p class="hint" data-i18n="iig_ui_userPostsHint">Image tags in your own posts (e.g. impersonated ones) are drawn on send. The images button is always available on your posts.</p>
                     
                     <details class="iig-section iig-accordion iig-api-section">
                         <summary><h4><i class="fa-solid fa-plug"></i> <span data-i18n="iig_ui_apiConfiguration">API Configuration</span></h4></summary>
@@ -14928,6 +14969,11 @@ function bindSettingsEvents() {
         saveSettings();
     });
 
+    bindIig(document.getElementById('iig_user_posts'), 'change', (e) => {
+        settings.userPostImages = e.target.checked;
+        saveSettings();
+    });
+
     // Low-power toggles. Master greys out the subs when off.
     bindIig(document.getElementById('iig_low_power'), 'change', (e) => {
         settings.lowPowerMode = e.target.checked;
@@ -15900,6 +15946,17 @@ function cleanupIig() {
 
     // Render handler. Swipe-back only re-wraps buttons (never regenerates).
     subscribeIig(context.eventSource, context.event_types.CHARACTER_MESSAGE_RENDERED, handleMessage, true);
+
+    // User posts: regenerate button + optional auto-generation of their tags.
+    if (context.event_types.USER_MESSAGE_RENDERED) {
+        // No releaseStreamingGate here: the user post renders right before the
+        // reply starts streaming, and the gate must keep holding for it.
+        subscribeIig(context.eventSource, context.event_types.USER_MESSAGE_RENDERED, async (messageId) => {
+            // No scheduleWrapPass either: it also clears the streaming flag.
+            // The wrap observer picks the new images up once streaming ends.
+            await onUserMessageRendered(messageId);
+        }, true);
+    }
 
     if (context.event_types.MESSAGE_SWIPED) {
         subscribeIig(context.eventSource, context.event_types.MESSAGE_SWIPED, () => {
