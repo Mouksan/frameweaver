@@ -365,6 +365,30 @@ function abortableDelay(ms, signal = null) {
 // messageId collides across chats because it's a numeric array index.
 const processingMessages = new Set();
 
+// Prompt Model sidecars in flight (same key shape). Tracked from the moment a
+// sidecar is scheduled, so window.IIG.isBusy() is already true before the
+// sidecar has written its image tag into the message.
+const _sidecarInFlight = new Set();
+
+/**
+ * Tell other extensions (DS Comments waits for illustrated posts) that this
+ * message's image work settled — done, failed or skipped. Listeners re-check
+ * window.IIG.isBusy() and the message text; the event alone means nothing.
+ */
+function _emitMessageImagesDone(messageId) {
+    if (_iigDisposed) return;
+    try {
+        window.dispatchEvent(new CustomEvent('iig:message-done', { detail: { messageId: Number(messageId) } }));
+    } catch (_) { /* event dispatch must never break processing */ }
+}
+
+/** Is any image work (sidecar or tag processing) running for this message? */
+function isMessageImageWorkBusy(messageId) {
+    if (_iigDisposed) return false;
+    const key = buildProcessingKey(messageId);
+    return processingMessages.has(key) || _sidecarInFlight.has(key);
+}
+
 // Cooldown against re-trigger loops from messageFormatting / innerHTML
 // changes re-firing CHARACTER_MESSAGE_RENDERED.
 const recentlyProcessed = new Map();
@@ -6868,10 +6892,15 @@ function schedulePromptModelSidecar(messageId, type) {
         _promptModelCaptures.delete(buildProcessingKey(messageId));
         return;
     }
+    const sidecarKey = buildProcessingKey(messageId);
+    _sidecarInFlight.add(sidecarKey);
     queueMicrotask(() => {
-        if (_iigDisposed) return;
+        if (_iigDisposed) { _sidecarInFlight.delete(sidecarKey); return; }
         trackIigTask(generatePromptModelSidecar(messageId, type)).catch(() =>
-            iigLog('ERROR', 'Prompt Model sidecar task crashed'));
+            iigLog('ERROR', 'Prompt Model sidecar task crashed')).finally(() => {
+            _sidecarInFlight.delete(sidecarKey);
+            _emitMessageImagesDone(messageId);
+        });
     });
 }
 
@@ -11144,6 +11173,7 @@ async function processMessageTags(messageId, options = {}) {
         if (_regenBatchTokens.get(procKey) === batchToken) {
             _regenBatchTokens.delete(procKey);
             processingMessages.delete(procKey);
+            _emitMessageImagesDone(messageId);
         }
     }
 }
@@ -11259,6 +11289,7 @@ async function regenerateMessageImages(messageId) {
         if (_regenBatchTokens.get(regenKey) === batchToken) {
             _regenBatchTokens.delete(regenKey);
             processingMessages.delete(regenKey);
+            _emitMessageImagesDone(messageId);
         }
     }
 }
@@ -15681,6 +15712,11 @@ function cleanupIig() {
         },
         getLastGenerated() {
             return _lastGenerated ? { ..._lastGenerated } : null;
+        },
+        // Is image work running for this message (current swipe)? Pair with
+        // the 'iig:message-done' window event to wait for illustrated posts.
+        isBusy(messageId) {
+            try { return isMessageImageWorkBusy(messageId); } catch (_) { return false; }
         },
     };
     // Primer: populate context cache for the rest of the module.
