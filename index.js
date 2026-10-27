@@ -1659,7 +1659,7 @@ function buildAuthHeaders(apiKey, extra = {}) {
     const swDefaults = Object.freeze({
         items: [],
         activeOutfits: {},
-        maxDimension: 512,
+        maxDimension: 1024,
         showFloatingBtn: false,
         autoDescribe: true,
         describeMode: 'direct',
@@ -2953,7 +2953,7 @@ function buildAuthHeaders(apiKey, extra = {}) {
     }
 
     const DESCRIBE_PROMPTS = {
-        detailed: 'Reply IMMEDIATELY with a clothing description. Skip any thinking, reasoning, or preamble. Start directly with the garment name. Max 3 sentences, max 500 characters. Include: garment names, fabric, texture, fit, colors. Avoid mentioning what is absent or missing. English only.',
+        detailed: 'Describe ONLY the clothing in this image as one dense paragraph of 600-1200 characters, in English, written as an outfit prompt for an image model. Open with the overall style or aesthetic, the dominant color and the secondary color or pattern. Then go garment by garment, outer layers before inner, top to bottom: name, fabric and its weight and texture, fit and silhouette, neckline, sleeves, length, closures, construction details, prints, embroidery and trims and where they sit. State how much of the body the outfit covers. Finish with accessories, legwear and footwear. If the image shows several views or close-up detail crops of the same outfit, merge them into one description. Do not describe the person, face, hair, pose, background or image layout. No preamble, no lists, no markdown.',
         simple: 'Reply IMMEDIATELY with a brief clothing description. Skip any thinking or preamble. Max 2 sentences, max 300 characters. List garments, colors. Avoid mentioning what is absent or missing. English only.',
         hair: 'Reply IMMEDIATELY with a short hairstyle description. Skip any thinking or preamble. Max 15 words. Format: "[style], [length], [texture]". Avoid mentioning hair color. Avoid mentioning what is absent or missing. Keep to one sentence only.',
     };
@@ -2964,7 +2964,7 @@ function buildAuthHeaders(apiKey, extra = {}) {
         const promptStyle = (category === 'hair') ? 'hair' : (swS.describePromptStyle || 'detailed');
         const describePrompt = DESCRIBE_PROMPTS[promptStyle] || DESCRIBE_PROMPTS.detailed;
         const maxDescLen = (category === 'hair') ? 1000 : (promptStyle === 'simple' ? 2000 : 3500);
-		const maxTokens = (category === 'hair') ? 400 : 800;
+		const maxTokens = (category === 'hair') ? 400 : 2000;
         swLog('INFO', `swAnalyzeOutfit: mode=${mode}, promptStyle=${promptStyle}, maxLen=${maxDescLen}`);
         toastr.info('Анализ образа...', 'Гардероб', { timeOut: 15000 });
 
@@ -3056,7 +3056,7 @@ function buildAuthHeaders(apiKey, extra = {}) {
                             if (clothingMatch) desc = clothingMatch[1];
                         }
                     }
-                    desc = desc.replace(/^["'`]+|["'`]+$/g, '').replace(/^(Here|This|The image|I see|In this).{0,20}(shows?|features?|depicts?|displays?)\s*/i, '');
+                    desc = desc.replace(/^["'`]+|["'`]+$/g, '').replace(/^(Here|This image|This picture|The image|The picture|I see|In this).{0,20}(shows?|features?|depicts?|displays?)\s*/i, '');
                 }
                 // Truncate to maxDescLen if model ignores token limits
                 if (desc && desc.length > maxDescLen) {
@@ -4222,6 +4222,19 @@ function buildAuthHeaders(apiKey, extra = {}) {
             if (!outfit) return null;
             if (outfit.imagePath) return await swLoadImageAsBase64(outfit.imagePath);
             return outfit.base64 || null;
+        },
+        // Sync check used to word the prompt: is an outfit image going to be
+        // sent as a ref? Mirrors getActiveOutfitBase64 / getCollageBase64.
+        hasActiveOutfitImage(type) {
+            const cn = swCharName(); if (!cn) return false;
+            const co = swGetCharOutfit(); if (!co) return false;
+            const hasImg = (id) => { const it = id ? swFindItem(id) : null; return !!(it && (it.imagePath || it.base64)); };
+            const mode = swGetModeFor(type);
+            if (mode === 'full') return hasImg(co[type]?.full);
+            if (mode === 'parts' && swGetSettings().experimentalCollage) {
+                return ['top', 'bottom', 'shoes', 'accessories', 'hair'].some(cat => hasImg(co[type]?.[cat]));
+            }
+            return false;
         },
         getActiveOutfitDescription(type) {
             const cn = swCharName(); if (!cn) return '';
@@ -9388,7 +9401,39 @@ async function generateImageNaistera(prompt, style, options = {}, settings = { .
 // Unified reference collection helpers
 // =========================================================================
 
-/** Select refs once with their descriptions. Priority: char, user, matched NPCs. */
+/**
+ * Wardrobe outfit images as refs (restored: this wiring was lost in the
+ * September port onto the beta base, so only the text description went out).
+ * NovelAI via rout.my takes a single img2img ref — an outfit sheet there would
+ * become the picture itself, so outfit images are never sent to it.
+ */
+function wardrobeOutfitImagesAllowed(type, settings) {
+    if (!window.slayWardrobe?.isReady?.()) return false;
+    if (settings?.apiType === 'openai' && isRoutMyNovelAiModel(settings.model)) return false;
+    // Same gating as the ref collection in generateImageWithRetry.
+    if (settings?.apiType === 'gemini' && settings.geminiSendRefs === false) return false;
+    if (settings?.apiType === 'naistera' && (!naisteraModelSupportsReferences(settings.naisteraModel) || settings.naisteraSendRefs === false)) return false;
+    const swS = SillyTavern.getContext().extensionSettings?.slay_wardrobe || {};
+    return type === 'bot' ? swS.sendOutfitImageBot !== false : swS.sendOutfitImageUser !== false;
+}
+
+async function getWardrobeOutfitRef(type, settings) {
+    if (!wardrobeOutfitImagesAllowed(type, settings)) return null;
+    try {
+        const full = await window.slayWardrobe.getActiveOutfitBase64(type);
+        if (full) return full;
+        if (window.slayWardrobe.getCollageBase64) return await window.slayWardrobe.getCollageBase64(type);
+    } catch (error) {
+        iigLog('WARN', `Wardrobe outfit ref skipped (${type}): ${error.message}`);
+    }
+    return null;
+}
+
+function wardrobeOutfitLabel(ownerName) {
+    return ownerName ? `${ownerName}'s outfit` : 'Outfit';
+}
+
+/** Select refs once with their descriptions. Priority: char, char outfit, user, user outfit, matched NPCs. */
 async function collectReferenceEntriesAsBase64(promptText, maxRefs = 4, settings = { ...getSettings() }) {
     const active = getActiveRefs();
     const refs = structuredClone({ charRef: active.charRef, userRef: active.userRef, npcReferences: active.npcReferences });
@@ -9405,18 +9450,39 @@ async function collectReferenceEntriesAsBase64(promptText, maxRefs = 4, settings
     };
 
     // char/user: always-sent (per-slot toggle) or name-gated like NPCs.
-    if (settings.charRefAlways || refMatchesPrompt(refs.charRef, promptText, charName)) {
+    // Each owner's wardrobe outfit image goes right after their own ref, so
+    // with the 4-ref cap char+outfit+user+outfit always fit and NPCs yield.
+    const charInPrompt = settings.charRefAlways || refMatchesPrompt(refs.charRef, promptText, charName);
+    const userInPrompt = settings.userRefAlways || refMatchesPrompt(refs.userRef, promptText, userName);
+    const charLabel = String(refs.charRef?.name || charName || '').trim();
+    const userLabel = String(refs.userRef?.name || userName || '').trim();
+
+    if (charInPrompt) {
         const charB64 = await getB64(refs.charRef);
         if (charB64) {
-            out.push({ image: charB64, description: String(refs.charRef?.name || charName || '').trim(), appearance: String(refs.charRef?.appearance || '').trim() });
+            out.push({ image: charB64, description: charLabel, appearance: String(refs.charRef?.appearance || '').trim() });
             iigLog('DEBUG:refs', `char ref sent (${settings.charRefAlways ? 'always' : 'name match'})`);
         }
+        if (out.length < maxRefs) {
+            const outfitB64 = await getWardrobeOutfitRef('bot', settings);
+            if (outfitB64) {
+                out.push({ image: outfitB64, description: wardrobeOutfitLabel(charLabel), appearance: '' });
+                iigLog('DEBUG:refs', 'char outfit ref sent');
+            }
+        }
     }
-    if (out.length < maxRefs && (settings.userRefAlways || refMatchesPrompt(refs.userRef, promptText, userName))) {
+    if (out.length < maxRefs && userInPrompt) {
         const userB64 = await getB64(refs.userRef);
         if (userB64) {
-            out.push({ image: userB64, description: String(refs.userRef?.name || userName || '').trim(), appearance: String(refs.userRef?.appearance || '').trim() });
+            out.push({ image: userB64, description: userLabel, appearance: String(refs.userRef?.appearance || '').trim() });
             iigLog('DEBUG:refs', `user ref sent (${settings.userRefAlways ? 'always' : 'name match'})`);
+        }
+        if (out.length < maxRefs) {
+            const outfitB64 = await getWardrobeOutfitRef('user', settings);
+            if (outfitB64) {
+                out.push({ image: outfitB64, description: wardrobeOutfitLabel(userLabel), appearance: '' });
+                iigLog('DEBUG:refs', 'user outfit ref sent');
+            }
         }
     }
 
@@ -10205,9 +10271,13 @@ async function generateImageWithRetry(prompt, style, onStatusUpdate, options = {
             const botDesc = window.slayWardrobe.getActiveOutfitDescription('bot');
             const userDesc = window.slayWardrobe.getActiveOutfitDescription('user');
 
+            // The "reference" wording only when the outfit image really goes
+            // out as a ref — otherwise it points the model at a missing picture.
+            const imgNote = (type) => (wardrobeOutfitImagesAllowed(type, settings) && window.slayWardrobe.hasActiveOutfitImage?.(type))
+                ? '[Clothing reference only, avoid copying the pose] ' : '';
             const wardrobeParts = [];
-            if (botDesc && charInPrompt) wardrobeParts.push(`[Clothing reference only, avoid copying the pose] [Character's current outfit: ${botDesc}]`);
-            if (userDesc && userInPrompt) wardrobeParts.push(`[Clothing reference only, avoid copying the pose] [User's current outfit: ${userDesc}]`);
+            if (botDesc && charInPrompt) wardrobeParts.push(`${imgNote('bot')}[Character's current outfit: ${botDesc}]`);
+            if (userDesc && userInPrompt) wardrobeParts.push(`${imgNote('user')}[User's current outfit: ${userDesc}]`);
 
             if (wardrobeParts.length > 0) {
                 prompt = `${wardrobeParts.join(' ')}\n${prompt}`;
@@ -15416,7 +15486,7 @@ function bindSettingsEvents() {
     swSetChecked('slay_sw_collage', swSettings.experimentalCollage, false);
     swSetChecked('slay_sw_skip_desc_warn', swSettings.skipDescriptionWarning, false);
     swSetChecked('slay_sw_show_float', swSettings.showFloatingBtn, false);
-    swSetVal('slay_sw_max_dim', swSettings.maxDimension, 512);
+    swSetVal('slay_sw_max_dim', swSettings.maxDimension, 1024);
     swSetVal('slay_sw_modal_width', swSettings.modalWidth, 'normal');
 
     document.getElementById('slay_sw_describe_api_section')?.classList.toggle('iig-hidden', swSettings.autoDescribe === false);
@@ -15446,7 +15516,7 @@ function bindSettingsEvents() {
         document.getElementById(`slay_sw_${key}`)?.addEventListener(key.includes('endpoint') || key.includes('model') ? 'input' : 'change', (e) => {
             const s = SillyTavern.getContext().extensionSettings.slay_wardrobe;
             let val = e.target.value;
-            if (key === 'max_dim') val = Math.max(128, Math.min(1024, parseInt(val) || 512));
+            if (key === 'max_dim') val = Math.max(128, Math.min(1024, parseInt(val) || 1024));
             if (key === 'describe_endpoint' || key === 'describe_model') val = val.trim();
             const mappedKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
             const finalKey = mappedKey === 'maxDim' ? 'maxDimension' : mappedKey;
